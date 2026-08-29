@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+@theme {
+  --color-rail-blue: #0B3A5B;
+  --color-rail-saffron: #F28C28;
+  --color-rail-green: #16834B;
+  --color-rail-bg: #F7F8FA;
+  --color-rail-white: #FFFFFF;
+  --color-rail-text-dark: #17202A;
+  --color-rail-text-muted: #64748B;
+  --color-rail-border: #E2E8F0;
+  --color-rail-warning: #D97706;
+  --color-rail-error: #DC2626;
+}
+
+@layer base {
+  body {
+    @apply bg-rail-bg text-rail-text-dark;
+  }
+}
