@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { formatTime } from '../utils/formatters';
 
-export default function CorridorTimeline({ corridor, timetables, blocks, horizonDays = 7 }) {
+export default function CorridorTimeline({ corridor, timetables, forecasts, blocks, horizonDays = 7 }) {
   const [selectedDirection, setSelectedDirection] = useState('Up');
   
   // SVG Coordinates setup
@@ -21,6 +21,7 @@ export default function CorridorTimeline({ corridor, timetables, blocks, horizon
   const getX = (mins) => paddingX + (mins / maxTime) * graphWidth;
   
   const filteredSchedules = useMemo(() => timetables.filter(t => t.direction === selectedDirection), [timetables, selectedDirection]);
+  const filteredForecasts = useMemo(() => forecasts?.filter(f => f.direction === selectedDirection) || [], [forecasts, selectedDirection]);
   const filteredBlocks = useMemo(() => blocks.filter(b => b.line_direction === selectedDirection), [blocks, selectedDirection]);
 
   // Intervals for grid based on horizon
@@ -97,6 +98,32 @@ export default function CorridorTimeline({ corridor, timetables, blocks, horizon
             );
           })}
 
+          {/* Goods Train Forecast Windows */}
+          {filteredForecasts.map((forecast) => {
+            const x1 = getX(forecast.earliest_entry_mins);
+            const w = getX(forecast.latest_exit_mins) - x1;
+            const y1 = getY(forecast.start_km);
+            const h = getY(forecast.end_km) - y1;
+            
+            const rectY = Math.min(y1, y1 + h);
+            const rectH = Math.abs(h);
+            
+            return (
+              <rect 
+                key={forecast.forecast_id}
+                x={x1} 
+                y={rectY} 
+                width={w} 
+                height={rectH || 5}
+                fill="#94A3B8" 
+                fillOpacity="0.2" 
+                stroke="#94A3B8" 
+                strokeWidth="1"
+                strokeDasharray="4,4"
+              />
+            );
+          })}
+
           {/* Maintenance Blocks */}
           {filteredBlocks.map((block) => {
             const x1 = getX(block.start_time_mins);
@@ -134,6 +161,9 @@ export default function CorridorTimeline({ corridor, timetables, blocks, horizon
         <div className="flex justify-center gap-6 mt-2 text-xs text-rail-text-muted">
           <div className="flex items-center gap-2">
             <span className="w-4 h-0.5 bg-rail-blue inline-block"></span> Train Movement
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-3 h-3 bg-slate-400/20 border border-slate-400 border-dashed inline-block"></span> Freight Window
           </div>
           <div className="flex items-center gap-2">
             <span className="w-3 h-3 bg-rail-saffron/70 border border-rail-warning rounded-sm inline-block"></span> Maintenance Block

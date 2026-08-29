@@ -71,7 +71,6 @@ export default function TaskTable({ tasks, blocks, taskStatuses }) {
                           <span className="w-1.5 h-1.5 rounded-full bg-rail-green inline-block"></span>
                           Planned (BLK-{blockId?.substring(0,4)})
                         </span>
-                        {isConsolidated && <span className="text-[10px] text-rail-saffron mt-0.5">Consolidated</span>}
                       </div>
                     )}
                     {status === 'Deferred' && (
@@ -92,6 +91,13 @@ export default function TaskTable({ tasks, blocks, taskStatuses }) {
                         Pending
                       </span>
                     )}
+                    
+                    <div className="text-[10px] text-rail-text-muted mt-1.5 leading-tight max-w-[150px]">
+                      {status === 'Planned' && (isConsolidated ? 'Safe window found. Consolidated.' : 'Safe window found. Standalone.')}
+                      {status === 'Deferred' && 'Feasible, but capacity allocated to higher-priority tasks.'}
+                      {status === 'Infeasible' && 'No safe window exists before deadline due to constraints.'}
+                      {status === 'Pending' && 'Awaiting AI optimization.'}
+                    </div>
                   </td>
                 </tr>
               );

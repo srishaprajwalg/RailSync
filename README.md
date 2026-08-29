@@ -18,6 +18,7 @@ The prototype is currently implemented with the following stack and components:
 
 ### Backend (Python/FastAPI)
 - **FastAPI API**: Exposes the simulation data and optimization engine.
+- **Mock Data Engine**: A deterministic simulation generator that produces ~100 varied maintenance requests (Track, Signalling, Traction), goods train forecast windows, and realistic passenger train movements (Vande Bharat, Shatabdi, Express, etc.) across the planning horizon to create a reproducible SIH demonstration environment.
 - **Pydantic**: Enforces strict schemas for `Station`, `TrainSchedule`, `GoodsTrainForecast`, `MaintenanceTask`, and `PlannedBlock`.
 - **AI Prioritization Engine**: An explainable, deterministic scoring model that evaluates defects, routine maintenance, severity, asset criticality, overdue days, and deadline urgency to generate an interpretable priority score (0-100).
 - **Optimization Engine (OR-Tools CP-SAT)**: A task-specific spatiotemporal constraint model that replaces global line gap analysis and natively supports configurable planning horizons (Daily, Weekly, Monthly).
@@ -40,9 +41,9 @@ The prototype is currently implemented with the following stack and components:
 ### Frontend (React/Vite)
 - **Dashboard**: A React-based interface utilizing Tailwind CSS v4, featuring a **Horizon Selector** (Daily/Weekly/Monthly) to drive the planning engine.
 - **KPICards**: Displays real-time API-driven metrics tracking Task Processing (Planned/Deferred/Infeasible breakdowns), High-Priority handling, and verifiable Downtime Reduction.
-- **CorridorTimeline**: A custom SVG Time-Distance graph that dynamically scales its grid and renders train movements alongside maintenance blocks across 1, 7, or 30-day horizons.
-- **BlockPlan**: Lists the generated, consolidated multi-department blocks formatted relative to their horizon day (e.g., `Day 2 — 08:30`).
-- **TaskTable**: A comprehensive view of all incoming maintenance requests, displaying detailed AI priority logic explanations and explicit color-coded execution statuses (`Planned`, `Deferred`, `Infeasible`).
+- **CorridorTimeline**: A custom SVG Time-Distance graph that dynamically scales its grid and visually renders passenger train movements, maintenance blocks, and **freight train forecast uncertainty windows** across 1, 7, or 30-day horizons.
+- **BlockPlan**: Lists the generated, consolidated multi-department blocks formatted relative to their horizon day (e.g., `Day 2 — 08:30`), complete with human-readable consolidation explanations.
+- **TaskTable**: A comprehensive view of all incoming maintenance requests, displaying detailed AI priority logic explanations and explicitly translated execution statuses ("Feasible, but capacity allocated to higher-priority tasks" instead of just "Deferred").
 
 ## 3. End-to-End Workflow
 
@@ -72,23 +73,24 @@ The CP-SAT constraint model and objective hierarchy have been rigorously verifie
 
 ## 6. Current Simulated Result
 
-In the most recent prototype test run (Daily Horizon - 1 Day):
-- **45** tasks generated (~5040 mins requested)
-- **34** tasks planned, **11** tasks genuinely infeasible (due to 1-day deadline expiry or complete train saturation)
-- **4** consolidated blocks created
-- **512** minutes consolidated block time
-- **~89.8%** calculated downtime reduction
+In the most recent deterministic prototype test run (Daily Horizon - 1 Day):
+- **100** tasks generated (~11,040 mins requested)
+- **~67** tasks planned
+- **~3** tasks deliberately **Deferred** (system prioritized higher urgency tasks due to physical conflict constraints)
+- **~30** tasks genuinely **Infeasible** (due to tight 1-day deadline expiry or complete passenger/goods train saturation)
+- **5** consolidated blocks created
+- **~94.8%** calculated downtime reduction
 
-> **Note:** This is a **prototype simulation result**. Metrics vary significantly depending on the selected horizon and the random density of the generated mock data.
+> **Note:** This is a **prototype simulation result**. Metrics reflect the deterministic mock data explicitly designed to demonstrate edge cases for the SIH prototype.
 
 ## 7. Limitations & Assumptions
 
 The current system relies on the following operational abstractions and limitations:
-- Uniform-speed interpolation is assumed between stations.
+- Uniform-speed interpolation is assumed between stations based on train type.
 - Goods-train forecast uncertainty is treated using conservative bounding (occupying the segment for the widest possible time).
-- Corridor, timetable, and task data are simulated.
-- Prototype safety assumptions (e.g., safety margins, compatibility matrices) are not actual railway operating rules.
-- The current spatial representation is still an abstraction.
+- Corridor, timetable, and task data are strictly simulated and mathematically scaled for the sake of the demo.
+- Prototype safety assumptions (e.g., safety margins, track-tamping compatibility matrices) are for demonstration and are not actual railway operating rules.
+- The current spatial representation is an abstraction.
 - No real integrations with TMS, SMMS, or TDMS exist yet.
 
 ## 8. Setup and Run Instructions

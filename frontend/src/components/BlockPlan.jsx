@@ -57,6 +57,12 @@ export default function BlockPlan({ blocks, tasks }) {
                     </div>
                   ))}
                 </div>
+                
+                <p className="text-[10px] text-rail-text-muted italic pt-1">
+                  {blockTasks.length > 1 
+                    ? "Optimizer successfully found a safe window to consolidate these compatible tasks, minimizing overall downtime."
+                    : "Optimizer found a safe window to execute this task without impacting train movements."}
+                </p>
               </div>
             </div>
           );

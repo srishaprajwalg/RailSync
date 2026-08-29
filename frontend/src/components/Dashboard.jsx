@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { fetchCorridor, fetchTimetables, fetchTasks, optimizeBlocks } from '../services/api';
+import { fetchCorridor, fetchTimetables, fetchTasks, fetchGoodsForecasts, optimizeBlocks } from '../services/api';
 import KPICards from './KPICards';
 import BlockPlan from './BlockPlan';
 import CorridorTimeline from './CorridorTimeline';
@@ -13,6 +13,7 @@ export default function Dashboard() {
   const [data, setData] = useState({
     corridor: [],
     timetables: [],
+    forecasts: [],
     tasks: [],
     blocks: [],
     metrics: null,
@@ -27,12 +28,13 @@ export default function Dashboard() {
   const loadInitialData = async () => {
     try {
       setLoading(true);
-      const [corridor, timetables, tasks] = await Promise.all([
+      const [corridor, timetables, forecasts, tasks] = await Promise.all([
         fetchCorridor(),
         fetchTimetables(),
+        fetchGoodsForecasts(),
         fetchTasks(),
       ]);
-      setData(prev => ({ ...prev, corridor, timetables, tasks }));
+      setData(prev => ({ ...prev, corridor, timetables, forecasts, tasks }));
       setLoading(false);
     } catch (err) {
       setError(err.message);
@@ -127,7 +129,7 @@ export default function Dashboard() {
         {data.blocks.length > 0 && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2">
-              <CorridorTimeline corridor={data.corridor} timetables={data.timetables} blocks={data.blocks} horizonDays={horizon} />
+              <CorridorTimeline corridor={data.corridor} timetables={data.timetables} forecasts={data.forecasts} blocks={data.blocks} horizonDays={horizon} />
             </div>
             <div className="lg:col-span-1">
               <BlockPlan blocks={data.blocks} tasks={data.tasks} />

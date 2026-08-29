@@ -18,53 +18,64 @@ MINS_PER_DAY = 1440
 
 def generate_mock_timetables() -> List[TrainSchedule]:
     """Generates a simplified passenger timetable across the entire planning horizon."""
+    random.seed(42)
     schedules = []
+    
+    train_types = [
+        {"type": "Vande Bharat", "speed": 1.2, "stop_time": 2},
+        {"type": "Shatabdi", "speed": 1.4, "stop_time": 2},
+        {"type": "Superfast", "speed": 1.6, "stop_time": 3},
+        {"type": "Express", "speed": 2.0, "stop_time": 5},
+        {"type": "Passenger", "speed": 3.0, "stop_time": 10},
+    ]
     
     for day in range(HORIZON_DAYS):
         day_offset = day * MINS_PER_DAY
         
         # Generate Up passenger trains (SBC -> JTJ)
-        for i in range(1, 15):
-            start_time = day_offset + (i * 90) + random.randint(0, 30)
+        for i in range(1, 20):
+            t_config = random.choices(train_types, weights=[5, 10, 30, 40, 15])[0]
+            start_time = day_offset + (i * 70) + random.randint(0, 45)
             stops = []
             current_time = start_time
             prev_km = MOCK_STATIONS[0].chainage_km
             
             for station in MOCK_STATIONS:
-                travel_time = int(station.chainage_km - prev_km)
+                travel_time = int((station.chainage_km - prev_km) * t_config["speed"])
                 current_time += travel_time
                 arrival = current_time
-                departure = current_time + (2 if station.id not in ["SBC", "JTJ"] else 0)
+                departure = current_time + (t_config["stop_time"] if station.id not in ["SBC", "JTJ"] else 0)
                 stops.append(TrainStop(station_id=station.id, arrival_mins=arrival, departure_mins=departure))
                 current_time = departure
                 prev_km = station.chainage_km
                 
             schedules.append(TrainSchedule(
-                train_id=f"EXP_UP_D{day}_{i}",
-                type="Express",
+                train_id=f"{t_config['type'][:3].upper().replace(' ', '')}_UP_D{day}_{i}",
+                type=t_config["type"],
                 direction="Up",
                 stops=stops
             ))
 
         # Generate Down passenger trains (JTJ -> SBC)
-        for i in range(1, 15):
-            start_time = day_offset + (i * 90) + random.randint(30, 60)
+        for i in range(1, 20):
+            t_config = random.choices(train_types, weights=[5, 10, 30, 40, 15])[0]
+            start_time = day_offset + (i * 70) + random.randint(30, 90)
             stops = []
             current_time = start_time
             prev_km = MOCK_STATIONS[-1].chainage_km
             
             for station in reversed(MOCK_STATIONS):
-                travel_time = int(abs(station.chainage_km - prev_km))
+                travel_time = int(abs(station.chainage_km - prev_km) * t_config["speed"])
                 current_time += travel_time
                 arrival = current_time
-                departure = current_time + (2 if station.id not in ["SBC", "JTJ"] else 0)
+                departure = current_time + (t_config["stop_time"] if station.id not in ["SBC", "JTJ"] else 0)
                 stops.append(TrainStop(station_id=station.id, arrival_mins=arrival, departure_mins=departure))
                 current_time = departure
                 prev_km = station.chainage_km
                 
             schedules.append(TrainSchedule(
-                train_id=f"EXP_DN_D{day}_{i}",
-                type="Express",
+                train_id=f"{t_config['type'][:3].upper().replace(' ', '')}_DN_D{day}_{i}",
+                type=t_config["type"],
                 direction="Down",
                 stops=stops
             ))
@@ -73,24 +84,21 @@ def generate_mock_timetables() -> List[TrainSchedule]:
 
 def generate_mock_goods_forecasts() -> List[GoodsTrainForecast]:
     """Generates wide-window forecasts for goods trains."""
+    random.seed(42)
     forecasts = []
     
     for day in range(HORIZON_DAYS):
         day_offset = day * MINS_PER_DAY
         
         # Up line goods trains
-        for i in range(4): # 4 goods trains per day per direction
+        for i in range(6): 
             start_km = 0.0
             end_km = 145.2
-            
-            # Forecast window: train enters sometime within a 2 hour window
             earliest_entry = day_offset + random.randint(0, MINS_PER_DAY - 300)
-            # Goods trains are slower (e.g. 1.5 - 2 mins per km, so ~250 mins travel time)
-            # Plus the 2 hour (120 min) uncertainty window
             latest_exit = earliest_entry + 250 + 120 
             
             forecasts.append(GoodsTrainForecast(
-                forecast_id=f"GOODS_UP_D{day}_{i}",
+                forecast_id=f"FREIGHT_UP_D{day}_{i}",
                 direction="Up",
                 start_km=start_km,
                 end_km=end_km,
@@ -99,14 +107,14 @@ def generate_mock_goods_forecasts() -> List[GoodsTrainForecast]:
             ))
             
         # Down line goods trains
-        for i in range(4):
+        for i in range(6):
             start_km = 145.2
             end_km = 0.0
             earliest_entry = day_offset + random.randint(0, MINS_PER_DAY - 300)
             latest_exit = earliest_entry + 250 + 120 
             
             forecasts.append(GoodsTrainForecast(
-                forecast_id=f"GOODS_DN_D{day}_{i}",
+                forecast_id=f"FREIGHT_DN_D{day}_{i}",
                 direction="Down",
                 start_km=start_km,
                 end_km=end_km,
@@ -118,12 +126,20 @@ def generate_mock_goods_forecasts() -> List[GoodsTrainForecast]:
 
 def generate_mock_tasks() -> List[MaintenanceTask]:
     """Generates synthetic maintenance tasks with defects, severity, and overdue status."""
+    random.seed(42)
     tasks = []
     directions = ["Up", "Down"]
     origins = ["Defect", "Routine Maintenance"]
     
+    def get_deadline():
+        # Mix of extremely tight (infeasible), same-day, and weekly deadlines
+        return random.choices(
+            [random.randint(60, 300), random.randint(720, 1440), random.randint(1440, 7*1440)],
+            weights=[10, 40, 50]
+        )[0]
+    
     # TMS (Engineering)
-    for i in range(15): # 15 tasks over the horizon
+    for i in range(35):
         start_km = random.randint(10, 130)
         origin = random.choices(origins, weights=[30, 70])[0]
         severity = random.randint(3, 5) if origin == "Defect" else random.randint(1, 3)
@@ -138,14 +154,14 @@ def generate_mock_tasks() -> List[MaintenanceTask]:
             overdue_days=overdue,
             asset_criticality=random.randint(1, 5),
             start_km=float(start_km),
-            end_km=float(start_km + 2),
+            end_km=float(start_km + random.randint(1, 5)),
             duration_mins=random.choice([120, 180, 240]),
-            deadline_mins=random.randint(1440, HORIZON_DAYS * MINS_PER_DAY),
+            deadline_mins=get_deadline(),
             line_direction=random.choice(directions)
         ))
         
     # TDMS (Traction)
-    for i in range(12):
+    for i in range(30):
         start_km = random.randint(10, 130)
         origin = random.choices(origins, weights=[20, 80])[0]
         severity = random.randint(3, 5) if origin == "Defect" else random.randint(1, 3)
@@ -160,14 +176,14 @@ def generate_mock_tasks() -> List[MaintenanceTask]:
             overdue_days=overdue,
             asset_criticality=random.randint(1, 5),
             start_km=float(start_km),
-            end_km=float(start_km + 5),
+            end_km=float(start_km + random.randint(2, 8)),
             duration_mins=90,
-            deadline_mins=random.randint(1440, HORIZON_DAYS * MINS_PER_DAY),
+            deadline_mins=get_deadline(),
             line_direction=random.choice(directions)
         ))
         
     # SMMS (Signalling)
-    for i in range(18):
+    for i in range(35):
         station = random.choice(MOCK_STATIONS[1:-1])
         origin = random.choices(origins, weights=[40, 60])[0]
         severity = random.randint(4, 5) if origin == "Defect" else random.randint(1, 4)
@@ -184,7 +200,7 @@ def generate_mock_tasks() -> List[MaintenanceTask]:
             start_km=station.chainage_km - 0.5,
             end_km=station.chainage_km + 0.5,
             duration_mins=60,
-            deadline_mins=random.randint(1440, HORIZON_DAYS * MINS_PER_DAY),
+            deadline_mins=get_deadline(),
             line_direction=random.choice(directions)
         ))
         

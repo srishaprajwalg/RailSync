@@ -25,7 +25,9 @@ def are_tasks_compatible(task1: MaintenanceTask, task2: MaintenanceTask) -> bool
     
     incompatible_pairs = [
         {"Track Tamping", "Point Overhaul"}, # Cannot tamp track while overhauling the same points
-        # Add more real-world constraints here
+        {"Track Tamping", "OHE Maintenance"}, # Cannot tamp track while tower wagon occupies track
+        {"Rail Fracture Repair", "Insulator Flashover"}, # Cannot weld rail while doing OHE work above
+        {"Point Overhaul", "Signal Failure"}, # Cannot test signals while points are dismantled
     ]
     
     pair = {t1, t2}

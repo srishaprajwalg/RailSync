@@ -26,6 +26,12 @@ export const fetchTimetables = async () => {
   return response.json();
 };
 
+export const fetchGoodsForecasts = async () => {
+  const response = await fetch(`${API_BASE_URL}/goods_forecasts`);
+  if (!response.ok) throw new Error('Failed to fetch goods forecasts');
+  return response.json();
+};
+
 export const fetchTasks = async () => {
   const response = await fetch(`${API_BASE_URL}/tasks`);
   if (!response.ok) throw new Error('Failed to fetch tasks');
