@@ -20,14 +20,17 @@ The prototype is currently implemented with the following stack and components:
 - **FastAPI API**: Exposes the simulation data and optimization engine.
 - **Pydantic**: Enforces strict schemas for `Station`, `TrainSchedule`, `GoodsTrainForecast`, `MaintenanceTask`, and `PlannedBlock`.
 - **AI Prioritization Engine**: An explainable, deterministic scoring model that evaluates defects, routine maintenance, severity, asset criticality, overdue days, and deadline urgency to generate an interpretable priority score (0-100).
-- **Optimization Engine (OR-Tools CP-SAT)**: A task-specific spatiotemporal constraint model that replaces global line gap analysis. 
+- **Optimization Engine (OR-Tools CP-SAT)**: A task-specific spatiotemporal constraint model that replaces global line gap analysis and natively supports configurable planning horizons (Daily, Weekly, Monthly).
+  - Configurable horizon lengths using absolute minutes from Day 0, scaling naturally for multi-day optimization.
   - Passenger train occupancy is interpolated at the task's relevant chainage.
   - Goods-train forecasts are modeled using conservative occupancy bounds.
-  - Maintenance tasks are represented using CP-SAT intervals.
-  - Train occupancy intervals are padded with a configurable safety margin.
-  - CP-SAT enforces no-overlap constraints strictly between maintenance intervals and their physically conflicting train occupancies.
-  - Up/Down line directions are modeled separately.
-  - Absolute minutes from Day 0 are used, natively supporting multi-day and cross-midnight scheduling.
+  - Maintenance intervals are padded with a configurable safety margin.
+  - CP-SAT strictly enforces no-overlap constraints between maintenance intervals and conflicting train occupancies.
+  - **Explainable Task Statuses**: The engine distinctly categorizes tasks into `Planned` (scheduled), `Infeasible` (genuinely mathematically impossible due to hard constraints or train overlaps within deadline), or `Deferred` (feasible, but skipped due to capacity limits or lower priority).
+  - **Objective Function Hierarchy**: A rigorous weighted lexicographic objective that:
+    1. Maximizes the total number of feasible tasks scheduled.
+    2. Prioritizes high-urgency tasks when capacity is limited.
+    3. Prefers earlier execution, natively forcing compatible tasks to consolidate into shared block windows.
 
 ### Block Semantics
 - A `PlannedBlock` represents a protected planning window.
@@ -35,20 +38,20 @@ The prototype is currently implemented with the following stack and components:
 - **Important:** The entire range between those chainages should NOT be interpreted as continuously occupied by maintenance. The block protects discrete, localized tasks within that space.
 
 ### Frontend (React/Vite)
-- **Dashboard**: A React-based interface utilizing Tailwind CSS v4.
-- **KPICards**: Displays real-time simulation metrics and downtime reduction.
-- **CorridorTimeline**: A custom SVG Time-Distance graph that plots train movements alongside scheduled maintenance blocks.
-- **BlockPlan**: Lists the generated, consolidated multi-department blocks.
-- **TaskTable**: A comprehensive view of all incoming maintenance requests, priority scores, priority explanations, and planning statuses.
+- **Dashboard**: A React-based interface utilizing Tailwind CSS v4, featuring a **Horizon Selector** (Daily/Weekly/Monthly) to drive the planning engine.
+- **KPICards**: Displays real-time API-driven metrics tracking Task Processing (Planned/Deferred/Infeasible breakdowns), High-Priority handling, and verifiable Downtime Reduction.
+- **CorridorTimeline**: A custom SVG Time-Distance graph that dynamically scales its grid and renders train movements alongside maintenance blocks across 1, 7, or 30-day horizons.
+- **BlockPlan**: Lists the generated, consolidated multi-department blocks formatted relative to their horizon day (e.g., `Day 2 — 08:30`).
+- **TaskTable**: A comprehensive view of all incoming maintenance requests, displaying detailed AI priority logic explanations and explicit color-coded execution statuses (`Planned`, `Deferred`, `Infeasible`).
 
 ## 3. End-to-End Workflow
 
 1. The frontend fetches the mock corridor definitions, scheduled passenger timetables, goods train forecasts, and synthesized maintenance tasks (prioritized by the AI engine).
-2. The user clicks "Generate Optimal Plan".
-3. The frontend calls `POST /api/optimize`.
-4. The CP-SAT engine calculates exact spatiotemporal train overlaps, applies compatibility/safety rules, and packs compatible tasks into safe consolidated blocks based on their priority scores.
-5. The API returns the optimized blocks.
-6. The dashboard updates to visualize the Time-Distance graph and optimization metrics.
+2. The user selects a planning horizon (1, 7, or 30 days) and clicks "Generate Optimal Plan".
+3. The frontend calls `POST /api/optimize` with the `horizon_days` payload.
+4. The CP-SAT engine calculates exact spatiotemporal train overlaps, verifies standalone task feasibility, applies compatibility rules, and optimizes according to the lexicographic hierarchy.
+5. The API returns the optimized blocks, detailed performance metrics, and a `task_statuses` mapping.
+6. The dashboard updates to visualize the scaled Time-Distance graph, accurate KPIs, and detailed task execution states.
 
 ## 4. API Endpoints
 
@@ -56,27 +59,27 @@ The prototype is currently implemented with the following stack and components:
 - `GET /api/timetables`: Returns simulated scheduled passenger trains.
 - `GET /api/goods_forecasts`: Returns simulated goods train forecast windows.
 - `GET /api/tasks`: Returns synthetic multi-department tasks with explicit priority logic.
-- `POST /api/optimize`: Runs the CP-SAT optimizer and returns generated blocks.
-- `GET /api/blocks`: Returns the currently planned blocks.
+- `POST /api/optimize`: Accepts `{ "horizon_days": int }`. Runs the CP-SAT optimizer and returns `{ blocks, metrics, task_statuses }`.
 
 ## 5. Validation Results
 
-The CP-SAT constraint model has been rigorously verified against explicit operational test scenarios:
-- **Spatially separated train/task** → **PASS** (Task schedules safely at the same time as a train, provided they are at different chainages).
-- **Actual spatial conflict** → **PASS** (Task successfully rejected/pushed when its physical segment is occupied).
-- **Safety margin** → **PASS** (Tasks successfully respect the padded timeframe around train occupancy).
-- **Different direction** → **PASS** (Up/Down constraints apply correctly).
-- **Cross-midnight scheduling** → **PASS** (Tasks successfully span midnight without artificial day-boundaries).
+The CP-SAT constraint model and objective hierarchy have been rigorously verified against explicit operational test scenarios:
+- **Spatial Separation** → **PASS** (Task schedules safely at the same time as a train, provided they are at different chainages).
+- **Train Collision** → **PASS** (Task successfully rejected/pushed when its physical segment is occupied).
+- **Safety Margin Constraint** → **PASS** (Tasks successfully respect the padded timeframe around train occupancy).
+- **Lexicographic Capacity Allocation** → **PASS** (When capacity is limited, high-priority tasks are scheduled while low-priority tasks are strictly marked `Deferred`).
+- **Safety vs Priority** → **PASS** (Safety constraints strictly override high-priority score weighting).
 
 ## 6. Current Simulated Result
 
-In the most recent prototype test run:
-- **45** tasks generated
-- **4560** minutes unconsolidated duration
-- **1082** minutes consolidated block time
-- **~76.2%** calculated downtime reduction
+In the most recent prototype test run (Daily Horizon - 1 Day):
+- **45** tasks generated (~5040 mins requested)
+- **34** tasks planned, **11** tasks genuinely infeasible (due to 1-day deadline expiry or complete train saturation)
+- **4** consolidated blocks created
+- **512** minutes consolidated block time
+- **~89.8%** calculated downtime reduction
 
-> **Note:** This is a **prototype simulation result**. It should NOT be compared directly with earlier development stages (e.g., the previous 55% result) because the underlying optimization conflict model changed significantly.
+> **Note:** This is a **prototype simulation result**. Metrics vary significantly depending on the selected horizon and the random density of the generated mock data.
 
 ## 7. Limitations & Assumptions
 

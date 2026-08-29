@@ -9,12 +9,14 @@ import { Train, Activity, AlertTriangle } from 'lucide-react';
 export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [optimizing, setOptimizing] = useState(false);
+  const [horizon, setHorizon] = useState(7);
   const [data, setData] = useState({
     corridor: [],
     timetables: [],
     tasks: [],
     blocks: [],
     metrics: null,
+    task_statuses: {},
   });
   const [error, setError] = useState(null);
 
@@ -41,11 +43,12 @@ export default function Dashboard() {
   const handleOptimize = async () => {
     try {
       setOptimizing(true);
-      const result = await optimizeBlocks();
+      const result = await optimizeBlocks(horizon);
       setData(prev => ({
         ...prev,
         blocks: result.blocks,
         metrics: result.metrics,
+        task_statuses: result.task_statuses || {},
       }));
       setOptimizing(false);
     } catch (err) {
@@ -95,16 +98,28 @@ export default function Dashboard() {
             <h2 className="text-2xl font-bold text-rail-text-dark">Maintenance Block Plan</h2>
             <p className="text-rail-text-muted text-sm">Coordinating multi-department requests with CP-SAT constraints</p>
           </div>
-          <button 
-            onClick={handleOptimize}
-            disabled={optimizing}
-            className={`px-6 py-2.5 rounded shadow-sm text-white font-medium flex items-center gap-2 transition-colors ${
-              optimizing ? 'bg-rail-blue/70 cursor-not-allowed' : 'bg-rail-blue hover:bg-rail-blue/90'
-            }`}
-          >
-            <Activity className="w-4 h-4" />
-            {optimizing ? 'Running CP-SAT Solver...' : 'Generate Optimal Plan'}
-          </button>
+          <div className="flex items-center gap-4">
+            <select
+              value={horizon}
+              onChange={(e) => setHorizon(Number(e.target.value))}
+              disabled={optimizing}
+              className="px-4 py-2.5 border border-rail-border rounded shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-rail-blue/50"
+            >
+              <option value={1}>Daily (1 Day)</option>
+              <option value={7}>Weekly (7 Days)</option>
+              <option value={30}>Monthly (30 Days)</option>
+            </select>
+            <button 
+              onClick={handleOptimize}
+              disabled={optimizing}
+              className={`px-6 py-2.5 rounded shadow-sm text-white font-medium flex items-center gap-2 transition-colors ${
+                optimizing ? 'bg-rail-blue/70 cursor-not-allowed' : 'bg-rail-blue hover:bg-rail-blue/90'
+              }`}
+            >
+              <Activity className="w-4 h-4" />
+              {optimizing ? 'Running CP-SAT Solver...' : 'Generate Optimal Plan'}
+            </button>
+          </div>
         </div>
 
         {data.metrics && <KPICards metrics={data.metrics} />}
@@ -112,7 +127,7 @@ export default function Dashboard() {
         {data.blocks.length > 0 && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2">
-              <CorridorTimeline corridor={data.corridor} timetables={data.timetables} blocks={data.blocks} />
+              <CorridorTimeline corridor={data.corridor} timetables={data.timetables} blocks={data.blocks} horizonDays={horizon} />
             </div>
             <div className="lg:col-span-1">
               <BlockPlan blocks={data.blocks} tasks={data.tasks} />
@@ -121,7 +136,7 @@ export default function Dashboard() {
         )}
 
         <div className="mt-8">
-          <TaskTable tasks={data.tasks} blocks={data.blocks} />
+          <TaskTable tasks={data.tasks} blocks={data.blocks} taskStatuses={data.task_statuses} />
         </div>
       </main>
     </div>

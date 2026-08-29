@@ -1,8 +1,12 @@
 const API_BASE_URL = 'http://127.0.0.1:8000/api';
 
-export const optimizeBlocks = async () => {
+export const optimizeBlocks = async (horizon_days = 7) => {
   const response = await fetch(`${API_BASE_URL}/optimize`, {
     method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ horizon_days }),
   });
   if (!response.ok) {
     throw new Error('Failed to run optimization');

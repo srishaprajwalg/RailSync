@@ -1,10 +1,11 @@
 import { formatDuration } from '../utils/formatters';
 
-export default function TaskTable({ tasks, blocks }) {
+export default function TaskTable({ tasks, blocks, taskStatuses }) {
   // Map tasks to their assigned block status
-  const getTaskStatus = (taskId) => {
+  const getTaskInfo = (taskId) => {
     const block = blocks.find(b => b.assigned_tasks.includes(taskId));
-    return block ? { status: 'Planned', blockId: block.id, isConsolidated: block.assigned_tasks.length > 1 } : { status: 'Pending', blockId: null };
+    const status = taskStatuses && taskStatuses[taskId] ? taskStatuses[taskId] : (block ? 'Planned' : 'Pending');
+    return { status, blockId: block ? block.id : null, isConsolidated: block && block.assigned_tasks.length > 1 };
   };
 
   return (
@@ -21,40 +22,71 @@ export default function TaskTable({ tasks, blocks }) {
           <thead className="text-xs text-rail-text-muted bg-rail-bg sticky top-0">
             <tr>
               <th className="px-4 py-3 font-semibold">ID</th>
-              <th className="px-4 py-3 font-semibold">Dept</th>
-              <th className="px-4 py-3 font-semibold">Task Type</th>
+              <th className="px-4 py-3 font-semibold">Dept & Type</th>
               <th className="px-4 py-3 font-semibold">Location</th>
-              <th className="px-4 py-3 font-semibold">Line</th>
               <th className="px-4 py-3 font-semibold">Duration</th>
+              <th className="px-4 py-3 font-semibold min-w-[200px]">Priority & AI Explanation</th>
               <th className="px-4 py-3 font-semibold">Status</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-rail-border">
             {tasks.map((task) => {
-              const { status, blockId, isConsolidated } = getTaskStatus(task.id);
+              const { status, blockId, isConsolidated } = getTaskInfo(task.id);
               
               return (
                 <tr key={task.id} className="hover:bg-rail-bg/50">
                   <td className="px-4 py-3 font-mono text-xs">{task.id}</td>
                   <td className="px-4 py-3">
-                    <span className="text-xs font-semibold bg-gray-100 text-gray-700 px-2 py-0.5 rounded">
-                      {task.department}
-                    </span>
+                    <div className="flex flex-col gap-1 items-start">
+                      <span className="text-xs font-semibold bg-gray-100 text-gray-700 px-2 py-0.5 rounded">
+                        {task.department}
+                      </span>
+                      <span className="text-xs text-rail-text-dark">{task.task_type}</span>
+                    </div>
                   </td>
-                  <td className="px-4 py-3">{task.task_type}</td>
-                  <td className="px-4 py-3 text-rail-text-muted">Km {task.start_km.toFixed(1)} - {task.end_km.toFixed(1)}</td>
-                  <td className="px-4 py-3">{task.line_direction}</td>
-                  <td className="px-4 py-3">{formatDuration(task.duration_mins)}</td>
+                  <td className="px-4 py-3 text-rail-text-muted text-xs">
+                    <div>{task.line_direction} Line</div>
+                    <div>Km {task.start_km.toFixed(1)} - {task.end_km.toFixed(1)}</div>
+                  </td>
+                  <td className="px-4 py-3 text-xs">{formatDuration(task.duration_mins)}</td>
                   <td className="px-4 py-3">
-                    {status === 'Planned' ? (
+                    <div className="flex flex-col">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs font-bold ${task.priority_details?.score >= 60 ? 'text-rail-error' : task.priority_details?.score >= 30 ? 'text-rail-saffron' : 'text-rail-green'}`}>
+                          Score: {task.priority_details?.score || 0}
+                        </span>
+                        <span className="text-xs text-rail-text-muted bg-gray-100 px-1.5 py-0.5 rounded">
+                          {task.priority_details?.category || 'Routine'}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-rail-text-muted mt-1 leading-tight line-clamp-2" title={task.priority_details?.explanation}>
+                        {task.priority_details?.explanation || 'Standard maintenance.'}
+                      </p>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    {status === 'Planned' && (
                       <div className="flex flex-col">
                         <span className="text-rail-green font-medium flex items-center gap-1 text-xs">
                           <span className="w-1.5 h-1.5 rounded-full bg-rail-green inline-block"></span>
-                          Planned in BLK-{blockId.substring(0,4)}
+                          Planned (BLK-{blockId?.substring(0,4)})
                         </span>
                         {isConsolidated && <span className="text-[10px] text-rail-saffron mt-0.5">Consolidated</span>}
                       </div>
-                    ) : (
+                    )}
+                    {status === 'Deferred' && (
+                      <span className="text-rail-saffron font-medium flex items-center gap-1 text-xs">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rail-saffron inline-block"></span>
+                        Deferred
+                      </span>
+                    )}
+                    {status === 'Infeasible' && (
+                      <span className="text-rail-error font-medium flex items-center gap-1 text-xs">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rail-error inline-block"></span>
+                        Infeasible
+                      </span>
+                    )}
+                    {status === 'Pending' && (
                       <span className="text-rail-text-muted font-medium flex items-center gap-1 text-xs">
                         <span className="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block"></span>
                         Pending

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 
 class Station(BaseModel):
@@ -64,3 +64,24 @@ class PlannedBlock(BaseModel):
     end_km: float
     line_direction: str
     assigned_tasks: List[str]  # Task IDs
+
+class OptimizeRequest(BaseModel):
+    horizon_days: int = Field(7, ge=1, le=30, description="Planning horizon in days (1 to 30)")
+
+class OptimizationMetrics(BaseModel):
+    total_tasks: int
+    planned_tasks: int
+    deferred_tasks: int
+    infeasible_tasks: int
+    blocks_created: int
+    total_block_minutes: int
+    total_requested_maintenance_minutes: int
+    downtime_reduction_pct: float
+    high_priority_planned: int
+    high_priority_deferred: int
+
+class OptimizationResult(BaseModel):
+    status: str
+    blocks: List[PlannedBlock]
+    metrics: OptimizationMetrics
+

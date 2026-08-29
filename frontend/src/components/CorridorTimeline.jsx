@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { formatTime } from '../utils/formatters';
 
-export default function CorridorTimeline({ corridor, timetables, blocks }) {
+export default function CorridorTimeline({ corridor, timetables, blocks, horizonDays = 7 }) {
   const [selectedDirection, setSelectedDirection] = useState('Up');
   
   // SVG Coordinates setup
@@ -16,14 +16,20 @@ export default function CorridorTimeline({ corridor, timetables, blocks }) {
   const maxChainage = Math.max(...corridor.map(c => c.chainage_km));
   const minChainage = Math.min(...corridor.map(c => c.chainage_km));
   
+  const maxTime = horizonDays * 1440;
   const getY = (km) => paddingY + ((km - minChainage) / (maxChainage - minChainage)) * graphHeight;
-  const getX = (mins) => paddingX + (mins / 1440) * graphWidth;
+  const getX = (mins) => paddingX + (mins / maxTime) * graphWidth;
   
   const filteredSchedules = useMemo(() => timetables.filter(t => t.direction === selectedDirection), [timetables, selectedDirection]);
   const filteredBlocks = useMemo(() => blocks.filter(b => b.line_direction === selectedDirection), [blocks, selectedDirection]);
 
-  // Hours for grid
-  const hours = Array.from({length: 25}, (_, i) => i * 60);
+  // Intervals for grid based on horizon
+  const getGridIntervals = () => {
+    if (horizonDays === 1) return Array.from({length: 25}, (_, i) => i * 60); // Every hour
+    if (horizonDays === 7) return Array.from({length: 8}, (_, i) => i * 1440); // Every day
+    return Array.from({length: 31}, (_, i) => i * 1440); // Every day for 30 days
+  };
+  const intervals = getGridIntervals();
 
   return (
     <div className="bg-white border border-rail-border rounded-lg shadow-sm">
@@ -52,16 +58,19 @@ export default function CorridorTimeline({ corridor, timetables, blocks }) {
         <svg width="100%" height="500" viewBox={`0 0 ${width} ${height}`} className="font-sans">
           
           {/* X Axis Grid (Time) */}
-          {hours.map((mins) => (
-            <g key={mins}>
-              <line x1={getX(mins)} y1={paddingY} x2={getX(mins)} y2={height - paddingY} stroke="#E2E8F0" strokeWidth="1" strokeDasharray="4,4" />
-              {mins % 120 === 0 && (
-                <text x={getX(mins)} y={height - paddingY + 20} fontSize="10" fill="#64748B" textAnchor="middle">
-                  {formatTime(mins)}
-                </text>
-              )}
-            </g>
-          ))}
+          {intervals.map((mins) => {
+            const isMajor = horizonDays === 1 ? mins % 120 === 0 : true;
+            return (
+              <g key={mins}>
+                <line x1={getX(mins)} y1={paddingY} x2={getX(mins)} y2={height - paddingY} stroke="#E2E8F0" strokeWidth="1" strokeDasharray="4,4" />
+                {isMajor && (
+                  <text x={getX(mins)} y={height - paddingY + 20} fontSize="10" fill="#64748B" textAnchor="middle">
+                    {horizonDays === 1 ? formatTime(mins, false) : `Day ${(mins/1440)+1}`}
+                  </text>
+                )}
+              </g>
+            );
+          })}
           
           {/* Y Axis Grid (Stations) */}
           {corridor.map((station) => (

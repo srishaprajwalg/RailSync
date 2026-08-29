@@ -5,20 +5,56 @@ from services.timetable_analyzer import get_passenger_train_occupancy, get_goods
 from services.compatibility import are_tasks_compatible
 import uuid
 
+def is_task_feasible_alone(
+    task: MaintenanceTask,
+    schedules: List[TrainSchedule],
+    forecasts: List[GoodsTrainForecast],
+    horizon_mins: int,
+    safety_margin: int
+) -> bool:
+    """Checks if a single task is geometrically and physically feasible within its deadline."""
+    effective_deadline = min(task.deadline_mins, horizon_mins)
+    if effective_deadline < task.duration_mins:
+        return False
+        
+    model = cp_model.CpModel()
+    start = model.NewIntVar(0, effective_deadline - task.duration_mins, 'start')
+    end = model.NewIntVar(task.duration_mins, effective_deadline, 'end')
+    interval = model.NewIntervalVar(start, task.duration_mins, end, 'interval')
+    
+    p_occs = get_passenger_train_occupancy(schedules, task.line_direction, task.start_km, task.end_km)
+    for (enter, exit_time) in p_occs:
+        safe_start = max(0, enter - safety_margin)
+        safe_end = exit_time + safety_margin
+        t_int = model.NewIntervalVar(safe_start, safe_end - safe_start, safe_end, 'train')
+        model.AddNoOverlap([interval, t_int])
+        
+    g_occs = get_goods_train_occupancy(forecasts, task.line_direction, task.start_km, task.end_km)
+    for (enter, exit_time) in g_occs:
+        safe_start = max(0, enter - safety_margin)
+        safe_end = exit_time + safety_margin
+        t_int = model.NewIntervalVar(safe_start, safe_end - safe_start, safe_end, 'goods')
+        model.AddNoOverlap([interval, t_int])
+        
+    solver = cp_model.CpSolver()
+    status = solver.Solve(model)
+    return status in [cp_model.OPTIMAL, cp_model.FEASIBLE]
+
 def optimize_blocks(
     tasks: List[MaintenanceTask], 
     schedules: List[TrainSchedule], 
     forecasts: List[GoodsTrainForecast] = None,
+    horizon_days: int = 7,
     safety_margin: int = 15
-) -> List[PlannedBlock]:
+) -> tuple[List[PlannedBlock], dict]:
     """
     Core Optimization Engine using Google OR-Tools CP-SAT.
     """
     if forecasts is None:
         forecasts = []
         
-    model = cp_model.CpModel()
     planned_blocks = []
+    task_status_map = {}
     
     # We will plan per line direction separately
     for direction in ["Up", "Down"]:
@@ -26,21 +62,37 @@ def optimize_blocks(
         if not dir_tasks:
             continue
             
+        model = cp_model.CpModel()
+            
         # 1. Create variables for each task
         task_starts = {}
         task_ends = {}
         task_intervals = {}
         task_is_scheduled = {}
         
-        # Max horizon is determined by the max deadline among tasks
-        max_horizon = max((t.deadline_mins for t in dir_tasks), default=10080)
+        # Max horizon is bounded by the selected horizon_days
+        horizon_mins = horizon_days * 1440
         
         for task in dir_tasks:
             task_is_scheduled[task.id] = model.NewBoolVar(f'scheduled_{task.id}')
             
-            # Start can be anywhere from 0 to absolute deadline
-            task_starts[task.id] = model.NewIntVar(0, max_horizon, f'start_{task.id}')
-            task_ends[task.id] = model.NewIntVar(0, max_horizon, f'end_{task.id}')
+            # Start can be anywhere from 0 to absolute deadline or horizon, whichever is earlier
+            effective_deadline = min(task.deadline_mins, horizon_mins)
+            
+            if effective_deadline < task.duration_mins:
+                # Task cannot possibly fit in the available time
+                model.Add(task_is_scheduled[task.id] == 0)
+                # Still need to create dummy variables to avoid KeyError later
+                task_starts[task.id] = model.NewIntVar(0, 0, f'start_{task.id}')
+                task_ends[task.id] = model.NewIntVar(0, 0, f'end_{task.id}')
+                task_intervals[task.id] = model.NewOptionalIntervalVar(
+                    task_starts[task.id], task.duration_mins, task_ends[task.id], 
+                    task_is_scheduled[task.id], f'interval_{task.id}'
+                )
+                continue
+
+            task_starts[task.id] = model.NewIntVar(0, effective_deadline - task.duration_mins, f'start_{task.id}')
+            task_ends[task.id] = model.NewIntVar(task.duration_mins, effective_deadline, f'end_{task.id}')
             
             task_intervals[task.id] = model.NewOptionalIntervalVar(
                 task_starts[task.id], 
@@ -49,9 +101,6 @@ def optimize_blocks(
                 task_is_scheduled[task.id], 
                 f'interval_{task.id}'
             )
-            
-            # Deadline constraint
-            model.Add(task_ends[task.id] <= task.deadline_mins)
 
         # 2. Timetable safety constraints (No overlap with specific train movements)
         # Instead of global white spaces, we create interval variables for every train 
@@ -100,12 +149,24 @@ def optimize_blocks(
                         # They cannot overlap in time
                         model.AddNoOverlap([task_intervals[t1.id], task_intervals[t2.id]])
 
-        # 4. Objective function: Maximize priority score of scheduled tasks
+        # 4. Objective function: Lexicographic Hierarchy
+        # 1. Complete as many feasible/required tasks as possible (W_SCHEDULE = 1 Billion)
+        # 2. Prioritize high-urgency/high-priority tasks (W_PRIORITY = 1 Million)
+        # 3. Minimize start times to encourage early execution and natural consolidation (W_EARLY = 10)
+        
+        W_SCHEDULE = 1_000_000_000
+        W_PRIORITY = 1_000_000
+        W_EARLY = 10
+        
         objective_terms = []
         for task in dir_tasks:
-            # We use the AI priority score if available, otherwise base_priority/10
             score = task.priority_details.score if hasattr(task, 'priority_details') and task.priority_details else 10
-            objective_terms.append(task_is_scheduled[task.id] * score)
+            
+            reward_schedule = task_is_scheduled[task.id] * W_SCHEDULE
+            reward_priority = task_is_scheduled[task.id] * (score * W_PRIORITY)
+            penalty_early = task_starts[task.id] * W_EARLY
+            
+            objective_terms.append(reward_schedule + reward_priority - penalty_early)
             
         model.Maximize(sum(objective_terms))
 
@@ -140,7 +201,19 @@ def optimize_blocks(
                         
                 planned_blocks.append(create_block_from_group(current_block, direction))
 
-    return planned_blocks
+        # Identify deferred vs infeasible tasks using the standalone feasibility check
+        for task in dir_tasks:
+            if not solver.Value(task_is_scheduled[task.id]):
+                # Test if the task was genuinely impossible on its own
+                if not is_task_feasible_alone(task, schedules, forecasts, horizon_mins, safety_margin):
+                    task_status_map[task.id] = "Infeasible"
+                else:
+                    # It was feasible, but the optimizer didn't pick it (due to conflicts or capacity limits)
+                    task_status_map[task.id] = "Deferred"
+            else:
+                task_status_map[task.id] = "Planned"
+
+    return planned_blocks, task_status_map
 
 def create_block_from_group(group, direction):
     # A block's protected time window covers all consolidated tasks
