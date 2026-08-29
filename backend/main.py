@@ -1,8 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from core.schemas import Station, TrainSchedule, MaintenanceTask, PlannedBlock
-from services.mock_data import MOCK_STATIONS, generate_mock_timetables, generate_mock_tasks
+from core.schemas import Station, TrainSchedule, MaintenanceTask, PlannedBlock, GoodsTrainForecast
+from services.mock_data import MOCK_STATIONS, generate_mock_timetables, generate_mock_tasks, generate_mock_goods_forecasts
 from services.optimizer import optimize_blocks
+from services.ai_prioritizer import prioritize_tasks
 from typing import List, Dict
 
 app = FastAPI(title="AI-Powered Automatic Block Planning API")
@@ -18,7 +19,8 @@ app.add_middleware(
 
 # In-memory storage for MVP
 timetables = generate_mock_timetables()
-tasks = generate_mock_tasks()
+goods_forecasts = generate_mock_goods_forecasts()
+tasks = prioritize_tasks(generate_mock_tasks(), current_time_mins=0)
 planned_blocks = []
 
 @app.get("/api/corridor", response_model=List[Station])
@@ -30,6 +32,11 @@ def get_corridor():
 def get_timetables():
     """Returns the simulated train schedules."""
     return timetables
+
+@app.get("/api/goods_forecasts", response_model=List[GoodsTrainForecast])
+def get_goods_forecasts():
+    """Returns the simulated goods train forecasts."""
+    return goods_forecasts
 
 @app.get("/api/tasks", response_model=List[MaintenanceTask])
 def get_tasks():

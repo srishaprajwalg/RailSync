@@ -9,25 +9,52 @@ class Station(BaseModel):
 
 class TrainStop(BaseModel):
     station_id: str
-    arrival_mins: int  # minutes from midnight
-    departure_mins: int
+    arrival_mins: int  # Absolute minutes from the start of the planning horizon
+    departure_mins: int # Absolute minutes from the start of the planning horizon
 
 class TrainSchedule(BaseModel):
     train_id: str
-    type: str  # Express, Goods, Passenger
+    type: str  # Express, Passenger
     direction: str  # Up, Down
     stops: List[TrainStop]
+
+class GoodsTrainForecast(BaseModel):
+    """
+    Represents a forecast window for a goods train movement.
+    Unlike passenger trains with exact minute-by-minute schedules, goods trains
+    are forecast to pass through a corridor section within a time window.
+    """
+    forecast_id: str
+    direction: str  # Up, Down
+    start_km: float # Entry point of the forecast section
+    end_km: float   # Exit point of the forecast section
+    earliest_entry_mins: int # Absolute minutes from horizon start
+    latest_exit_mins: int    # Absolute minutes from horizon start
+
+class PriorityDetails(BaseModel):
+    score: int
+    category: str
+    explanation: str
 
 class MaintenanceTask(BaseModel):
     id: str
     department: str  # TMS, SMMS, TDMS
     task_type: str
+    
+    # Origins and Urgency factors
+    origin: str             # e.g., "Defect", "Routine Maintenance"
+    severity: int           # 1 (Low) to 5 (Critical safety hazard)
+    overdue_days: int       # Number of days this task is overdue
+    asset_criticality: int  # 1 (Low) to 5 (High-density/critical section)
+    
+    # Spatial and Temporal constraints
     start_km: float
     end_km: float
     duration_mins: int
-    base_priority: int
-    deadline_mins: int
+    deadline_mins: int      # Absolute minutes from horizon start
     line_direction: str
+    
+    priority_details: Optional[PriorityDetails] = None
 
 class PlannedBlock(BaseModel):
     id: str

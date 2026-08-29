@@ -1,19 +1,26 @@
 from ortools.sat.python import cp_model
 from typing import List
-from core.schemas import MaintenanceTask, PlannedBlock, TrainSchedule
-from services.timetable_analyzer import get_train_occupancy, find_white_spaces
+from core.schemas import MaintenanceTask, PlannedBlock, TrainSchedule, GoodsTrainForecast
+from services.timetable_analyzer import get_passenger_train_occupancy, get_goods_train_occupancy
 from services.compatibility import are_tasks_compatible
 import uuid
 
-def optimize_blocks(tasks: List[MaintenanceTask], schedules: List[TrainSchedule], safety_margin: int = 15) -> List[PlannedBlock]:
+def optimize_blocks(
+    tasks: List[MaintenanceTask], 
+    schedules: List[TrainSchedule], 
+    forecasts: List[GoodsTrainForecast] = None,
+    safety_margin: int = 15
+) -> List[PlannedBlock]:
     """
     Core Optimization Engine using Google OR-Tools CP-SAT.
     """
+    if forecasts is None:
+        forecasts = []
+        
     model = cp_model.CpModel()
-    
-    # We will plan per line direction separately to keep the model simpler for MVP
     planned_blocks = []
     
+    # We will plan per line direction separately
     for direction in ["Up", "Down"]:
         dir_tasks = [t for t in tasks if t.line_direction == direction]
         if not dir_tasks:
@@ -25,11 +32,16 @@ def optimize_blocks(tasks: List[MaintenanceTask], schedules: List[TrainSchedule]
         task_intervals = {}
         task_is_scheduled = {}
         
+        # Max horizon is determined by the max deadline among tasks
+        max_horizon = max((t.deadline_mins for t in dir_tasks), default=10080)
+        
         for task in dir_tasks:
             task_is_scheduled[task.id] = model.NewBoolVar(f'scheduled_{task.id}')
-            # Start can be anywhere from 0 to 1440 (24h in mins)
-            task_starts[task.id] = model.NewIntVar(0, 1440, f'start_{task.id}')
-            task_ends[task.id] = model.NewIntVar(0, 1440, f'end_{task.id}')
+            
+            # Start can be anywhere from 0 to absolute deadline
+            task_starts[task.id] = model.NewIntVar(0, max_horizon, f'start_{task.id}')
+            task_ends[task.id] = model.NewIntVar(0, max_horizon, f'end_{task.id}')
+            
             task_intervals[task.id] = model.NewOptionalIntervalVar(
                 task_starts[task.id], 
                 task.duration_mins, 
@@ -41,33 +53,40 @@ def optimize_blocks(tasks: List[MaintenanceTask], schedules: List[TrainSchedule]
             # Deadline constraint
             model.Add(task_ends[task.id] <= task.deadline_mins)
 
-        # 2. Timetable safety constraints (No overlap with trains)
-        # For MVP, we extract global white spaces for the whole line segment max extent of tasks, 
-        # or we check per task. Checking per task is more accurate.
+        # 2. Timetable safety constraints (No overlap with specific train movements)
+        # Instead of global white spaces, we create interval variables for every train 
+        # crossing the specific chainage segment of the task, and force NoOverlap.
+        
+        train_conflict_intervals = {}
+        
         for task in dir_tasks:
-            occupancies = get_train_occupancy(schedules, direction, task.start_km, task.end_km)
-            white_spaces = find_white_spaces(occupancies, safety_margin=safety_margin)
+            train_conflict_intervals[task.id] = []
             
-            # The task must fall completely within ONE of the white spaces if it is scheduled
-            # We use a boolean variable for each white space option
-            space_bools = []
-            for i, (ws_start, ws_end) in enumerate(white_spaces):
-                if ws_end - ws_start >= task.duration_mins:
-                    in_space = model.NewBoolVar(f'task_{task.id}_in_space_{i}')
-                    space_bools.append(in_space)
+            # Passenger Trains
+            p_occupancies = get_passenger_train_occupancy(schedules, direction, task.start_km, task.end_km)
+            # Goods Trains
+            g_occupancies = get_goods_train_occupancy(forecasts, direction, task.start_km, task.end_km)
+            
+            all_occupancies = p_occupancies + g_occupancies
+            
+            for i, (enter_time, exit_time) in enumerate(all_occupancies):
+                # Apply safety margin around the train occupancy
+                safe_start = max(0, enter_time - safety_margin)
+                safe_end = exit_time + safety_margin
+                duration = safe_end - safe_start
+                if duration <= 0:
+                    continue
                     
-                    # If in_space is true, task_start >= ws_start and task_end <= ws_end
-                    model.Add(task_starts[task.id] >= ws_start).OnlyEnforceIf(in_space)
-                    model.Add(task_ends[task.id] <= ws_end).OnlyEnforceIf(in_space)
-            
-            if space_bools:
-                # If scheduled, it must be in exactly one space
-                model.AddExactlyOne(space_bools).OnlyEnforceIf(task_is_scheduled[task.id])
-            else:
-                # No space can fit this task
-                model.Add(task_is_scheduled[task.id] == 0)
+                # Create a fixed interval representing the train
+                # Since it's fixed, we can just use NewIntervalVar with constant values
+                train_interval = model.NewIntervalVar(
+                    safe_start, duration, safe_end, f'train_{task.id}_occ_{i}'
+                )
+                
+                # The task interval cannot overlap with this train interval
+                model.AddNoOverlap([task_intervals[task.id], train_interval])
 
-        # 3. Task compatibility constraint (No overlap if incompatible)
+        # 3. Task compatibility constraint (No overlap if incompatible and physically overlapping)
         for i in range(len(dir_tasks)):
             for j in range(i + 1, len(dir_tasks)):
                 t1 = dir_tasks[i]
@@ -81,10 +100,13 @@ def optimize_blocks(tasks: List[MaintenanceTask], schedules: List[TrainSchedule]
                         # They cannot overlap in time
                         model.AddNoOverlap([task_intervals[t1.id], task_intervals[t2.id]])
 
-        # 4. Objective function: Maximize priority of scheduled tasks
+        # 4. Objective function: Maximize priority score of scheduled tasks
         objective_terms = []
         for task in dir_tasks:
-            objective_terms.append(task_is_scheduled[task.id] * task.base_priority)
+            # We use the AI priority score if available, otherwise base_priority/10
+            score = task.priority_details.score if hasattr(task, 'priority_details') and task.priority_details else 10
+            objective_terms.append(task_is_scheduled[task.id] * score)
+            
         model.Maximize(sum(objective_terms))
 
         # Solve
@@ -93,7 +115,7 @@ def optimize_blocks(tasks: List[MaintenanceTask], schedules: List[TrainSchedule]
         status = solver.Solve(model)
         
         if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-            # Consolidate overlapping scheduled tasks into PlannedBlocks
+            # Extract the actual scheduled tasks
             scheduled_intervals = []
             for task in dir_tasks:
                 if solver.Value(task_is_scheduled[task.id]):
@@ -101,12 +123,9 @@ def optimize_blocks(tasks: List[MaintenanceTask], schedules: List[TrainSchedule]
                     e = solver.Value(task_ends[task.id])
                     scheduled_intervals.append((s, e, task))
             
-            # Simple temporal-spatial grouping for block generation
-            # Group if time overlaps and spatial is adjacent/overlapping
-            # For MVP, we will just output individual blocks or simple consolidations
+            # Simple grouping heuristic to create blocks from overlapping tasks
             scheduled_intervals.sort(key=lambda x: x[0])
             
-            # Simple grouping heuristic post-optimization
             if scheduled_intervals:
                 current_block = [scheduled_intervals[0]]
                 for interval in scheduled_intervals[1:]:
@@ -118,13 +137,17 @@ def optimize_blocks(tasks: List[MaintenanceTask], schedules: List[TrainSchedule]
                         # Output current block
                         planned_blocks.append(create_block_from_group(current_block, direction))
                         current_block = [interval]
+                        
                 planned_blocks.append(create_block_from_group(current_block, direction))
 
     return planned_blocks
 
 def create_block_from_group(group, direction):
+    # A block's protected time window covers all consolidated tasks
     start_time = min(g[0] for g in group)
     end_time = max(g[1] for g in group)
+    
+    # A block's physical extent is the union of all task chainages inside it
     start_km = min(g[2].start_km for g in group)
     end_km = max(g[2].end_km for g in group)
     tasks = [g[2].id for g in group]
