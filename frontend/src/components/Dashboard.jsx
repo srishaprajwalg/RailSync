@@ -71,7 +71,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-3">
             <Train className="w-8 h-8 text-rail-saffron" />
             <div>
-              <h1 className="text-xl font-bold tracking-tight">RailSync</h1>
+              <h1 className="text-xl font-bold tracking-tight">RailVyuha</h1>
               <p className="text-xs text-rail-border opacity-80">Automatic Block Planning System</p>
             </div>
           </div>
@@ -92,7 +92,7 @@ export default function Dashboard() {
 
         {/* Prototype Disclaimer */}
         <div className="text-xs text-rail-text-muted bg-white px-4 py-2 border border-rail-border rounded-md shadow-sm">
-          <strong>Note:</strong> Corridor, timetable, and maintenance data are simulated/approximate and are not actual Indian Railways operational data.
+          <strong>Note:</strong> Station and timetable data are derived from public Indian Railways data (approximate chainage). Maintenance tasks and goods-train forecasts are synthetic — no public source exists for either.
         </div>
 
         <div className="flex justify-between items-end">

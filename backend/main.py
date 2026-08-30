@@ -1,12 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from core.schemas import Station, TrainSchedule, MaintenanceTask, PlannedBlock, GoodsTrainForecast, OptimizeRequest, OptimizationResult, OptimizationMetrics
-from services.mock_data import MOCK_STATIONS, generate_mock_timetables, generate_mock_tasks, generate_mock_goods_forecasts
+from services.real_corridor import CORRIDOR_STATIONS, get_real_timetables
+from services.mock_data import generate_mock_tasks, generate_mock_goods_forecasts
 from services.optimizer import optimize_blocks
 from services.ai_prioritizer import prioritize_tasks
 from typing import List, Dict, Any
 
-app = FastAPI(title="AI-Powered Automatic Block Planning API")
+app = FastAPI(title="RailVyuha — AI-Powered Automatic Block Planning API")
 
 # Allow CORS for local frontend
 app.add_middleware(
@@ -18,19 +19,21 @@ app.add_middleware(
 )
 
 # In-memory storage for MVP
-timetables = generate_mock_timetables()
+# Stations and timetables: derived from real Indian Railways data (datameet/railways)
+# Goods forecasts and maintenance tasks: synthetic (no public source exists)
+timetables = get_real_timetables()
 goods_forecasts = generate_mock_goods_forecasts()
 tasks = prioritize_tasks(generate_mock_tasks(), current_time_mins=0)
 planned_blocks = []
 
 @app.get("/api/corridor", response_model=List[Station])
 def get_corridor():
-    """Returns the simulated stations and chainages."""
-    return MOCK_STATIONS
+    """Returns corridor stations derived from real Indian Railways data (chainage is approximate)."""
+    return CORRIDOR_STATIONS
 
 @app.get("/api/timetables", response_model=List[TrainSchedule])
 def get_timetables():
-    """Returns the simulated train schedules."""
+    """Returns train schedules derived from real Indian Railways data."""
     return timetables
 
 @app.get("/api/goods_forecasts", response_model=List[GoodsTrainForecast])

@@ -1,9 +1,9 @@
 from core.schemas import TrainSchedule, GoodsTrainForecast
-from services.mock_data import MOCK_STATIONS
+from services.real_corridor import CORRIDOR_STATIONS
 from typing import List, Tuple, Optional
 
 def get_station_chainage(station_id: str) -> float:
-    for st in MOCK_STATIONS:
+    for st in CORRIDOR_STATIONS:
         if st.id == station_id:
             return st.chainage_km
     return 0.0
