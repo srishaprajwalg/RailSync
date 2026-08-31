@@ -44,10 +44,14 @@ The prototype is currently implemented with the following stack and components:
     2. Prioritizes high-urgency tasks when capacity is limited.
     3. Prefers earlier execution, natively forcing compatible tasks to consolidate into shared block windows.
 
-### Block Semantics
+### Block Semantics & Consolidation Behavior
 - A `PlannedBlock` represents a protected planning window.
 - Its start and end chainages define the maximum spatial extent of the included tasks.
-- **Important:** The entire range between those chainages should NOT be interpreted as continuously occupied by maintenance. The block protects discrete, localized tasks within that space.
+- **Explicit Post-Processing Consolidation**: 
+  - Blocks are no longer grouped merely because tasks overlap in time.
+  - Grouping requires temporal compatibility (tasks happen at the same time), spatial compatibility (tasks overlap or abut physically), domain/task compatibility (tasks are not operationally conflicting), and matching line direction.
+  - Spatially distant simultaneous tasks remain entirely separate `PlannedBlock`s.
+  - Only adjacent/overlapping compatible tasks are consolidated into shared block windows.
 
 ### Frontend (React/Vite)
 - **Dashboard**: A React-based interface utilizing Tailwind CSS v4, featuring a **Horizon Selector** (Daily/Weekly/Monthly) to drive the planning engine.
@@ -73,24 +77,29 @@ The prototype is currently implemented with the following stack and components:
 - `GET /api/tasks`: Returns synthetic multi-department tasks with explicit priority logic.
 - `POST /api/optimize`: Accepts `{ "horizon_days": int }`. Runs the CP-SAT optimizer and returns `{ blocks, metrics, task_statuses }`.
 
-## 5. Validation Results
+## 5. Testing & Validation Results
 
-The CP-SAT constraint model and objective hierarchy have been rigorously verified against explicit operational test scenarios:
-- **Spatial Separation** → **PASS** (Task schedules safely at the same time as a train, provided they are at different chainages).
-- **Train Collision** → **PASS** (Task successfully rejected/pushed when its physical segment is occupied).
-- **Safety Margin Constraint** → **PASS** (Tasks successfully respect the padded timeframe around train occupancy).
-- **Lexicographic Capacity Allocation** → **PASS** (When capacity is limited, high-priority tasks are scheduled while low-priority tasks are strictly marked `Deferred`).
-- **Safety vs Priority** → **PASS** (Safety constraints strictly override high-priority score weighting).
+The CP-SAT constraint model and the block grouping logic have been rigorously tested against explicit operational test scenarios. Targeted optimizer and grouping tests now exist in `backend/tests/test_optimizer.py`.
+
+These tests specifically cover:
+- **Spatial separation**: Spatially distant tasks at the same time produce separate blocks.
+- **Direction compatibility**: Up/Down tasks are strictly isolated.
+- **Compatible grouping**: Tasks overlapping in both time and space successfully consolidate.
+- **Spatial extent verification**: Consolidated blocks accurately reflect the min/max chainage of their tasks.
+- **Deadline behavior**: Tasks exceeding deadlines are correctly rejected as infeasible.
+
+> **Note on Test Execution:** The testing suite is written in a standard pytest-compatible structure. However, because `pytest` is not installed in the prototype environment, these test functions were manually exercised and successfully validated via a standalone runner during development. We make no claim that an automated CI `pytest` suite is currently passing.
 
 ## 6. Limitations & Assumptions
 
 The current system relies on the following operational abstractions and limitations:
-- Station chainage is computed from geographic coordinates (Haversine), not official Indian Railways chainage.
-- Uniform-speed interpolation is assumed between stations based on train type for missing intermediate stops.
+- Maintenance tasks and goods-train forecasts are strictly synthetic (`mock_data.py`).
+- Station chainage is approximated/interpolated from geographic coordinates (Haversine), not official Indian Railways engineering chainage.
+- Uniform-speed interpolation is assumed between stations for missing intermediate stops.
 - Goods-train forecast uncertainty is treated using conservative bounding (occupying the segment for the widest possible time).
-- Maintenance tasks and goods-train forecasts are strictly synthetic.
-- Prototype safety assumptions (e.g., safety margins, track-tamping compatibility matrices) are for demonstration and are not actual railway operating rules.
-- The current spatial representation is an abstraction.
+- Resource constraints (e.g., track machines, manpower availability) are not yet implemented.
+- Station/block-section possession logic (closing full sections between stations) is not yet modeled; blocks strictly use task min/max km.
+- Complex topology (loop lines, yard logic, crossovers) is not yet modeled; everything assumes strict Up or Down linear chainage.
 - No real integrations with TMS, SMMS, or TDMS exist yet.
 
 ## 7. Setup and Run Instructions

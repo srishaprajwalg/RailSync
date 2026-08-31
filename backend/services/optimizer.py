@@ -184,22 +184,7 @@ def optimize_blocks(
                     e = solver.Value(task_ends[task.id])
                     scheduled_intervals.append((s, e, task))
             
-            # Simple grouping heuristic to create blocks from overlapping tasks
-            scheduled_intervals.sort(key=lambda x: x[0])
-            
-            if scheduled_intervals:
-                current_block = [scheduled_intervals[0]]
-                for interval in scheduled_intervals[1:]:
-                    prev = current_block[-1]
-                    # If time overlaps, add to block
-                    if interval[0] <= prev[1]:
-                        current_block.append(interval)
-                    else:
-                        # Output current block
-                        planned_blocks.append(create_block_from_group(current_block, direction))
-                        current_block = [interval]
-                        
-                planned_blocks.append(create_block_from_group(current_block, direction))
+            planned_blocks.extend(group_tasks_into_blocks(scheduled_intervals, direction))
 
         # Identify deferred vs infeasible tasks using the standalone feasibility check
         for task in dir_tasks:
@@ -214,6 +199,46 @@ def optimize_blocks(
                 task_status_map[task.id] = "Planned"
 
     return planned_blocks, task_status_map
+
+def group_tasks_into_blocks(scheduled_intervals, direction):
+    planned_blocks = []
+    if scheduled_intervals:
+        n = len(scheduled_intervals)
+        adj = {i: [] for i in range(n)}
+        
+        for i in range(n):
+            s1, e1, t1 = scheduled_intervals[i]
+            min_k1, max_k1 = min(t1.start_km, t1.end_km), max(t1.start_km, t1.end_km)
+            for j in range(i + 1, n):
+                s2, e2, t2 = scheduled_intervals[j]
+                min_k2, max_k2 = min(t2.start_km, t2.end_km), max(t2.start_km, t2.end_km)
+                
+                t_overlap = (s1 <= e2) and (s2 <= e1)
+                s_overlap = (min_k1 <= max_k2) and (min_k2 <= max_k1)
+                is_compatible = are_tasks_compatible(t1, t2)
+                same_direction = t1.line_direction == t2.line_direction
+                
+                if t_overlap and s_overlap and is_compatible and same_direction:
+                    adj[i].append(j)
+                    adj[j].append(i)
+                    
+        visited = set()
+        for i in range(n):
+            if i not in visited:
+                component = []
+                queue = [i]
+                visited.add(i)
+                
+                while queue:
+                    curr = queue.pop(0)
+                    component.append(scheduled_intervals[curr])
+                    for neighbor in adj[curr]:
+                        if neighbor not in visited:
+                            visited.add(neighbor)
+                            queue.append(neighbor)
+                            
+                planned_blocks.append(create_block_from_group(component, direction))
+    return planned_blocks
 
 def create_block_from_group(group, direction):
     # A block's protected time window covers all consolidated tasks

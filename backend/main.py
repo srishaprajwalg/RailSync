@@ -1,11 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from core.schemas import Station, TrainSchedule, MaintenanceTask, PlannedBlock, GoodsTrainForecast, OptimizeRequest, OptimizationResult, OptimizationMetrics
+from core.schemas import Station, TrainSchedule, MaintenanceTask, MaintenanceTaskCreate, PlannedBlock, GoodsTrainForecast, OptimizeRequest, OptimizationResult, OptimizationMetrics
 from services.real_corridor import CORRIDOR_STATIONS, get_real_timetables
 from services.mock_data import generate_mock_tasks, generate_mock_goods_forecasts
 from services.optimizer import optimize_blocks
 from services.ai_prioritizer import prioritize_tasks
 from typing import List, Dict, Any
+import uuid
 
 app = FastAPI(title="RailVyuha — AI-Powered Automatic Block Planning API")
 
@@ -44,6 +45,28 @@ def get_goods_forecasts():
 @app.get("/api/tasks", response_model=List[MaintenanceTask])
 def get_tasks():
     """Returns the synthetic multi-department maintenance tasks."""
+    return tasks
+
+@app.post("/api/tasks", response_model=List[MaintenanceTask])
+def add_task(task_in: MaintenanceTaskCreate):
+    """Add a new manual task and return the updated task list."""
+    global tasks
+    new_task = MaintenanceTask(
+        id=f"MANUAL-{uuid.uuid4().hex[:6].upper()}",
+        department=task_in.department,
+        task_type="Manual Block",
+        origin="User Input",
+        severity=task_in.severity,
+        overdue_days=0,
+        asset_criticality=3,
+        start_km=task_in.start_km,
+        end_km=task_in.end_km,
+        duration_mins=task_in.duration_mins,
+        deadline_mins=1440,
+        line_direction="Both"
+    )
+    new_task = prioritize_tasks([new_task], current_time_mins=0)[0]
+    tasks.append(new_task)
     return tasks
 
 @app.post("/api/optimize", response_model=Dict[str, Any])

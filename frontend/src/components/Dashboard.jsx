@@ -4,7 +4,8 @@ import KPICards from './KPICards';
 import BlockPlan from './BlockPlan';
 import CorridorTimeline from './CorridorTimeline';
 import TaskTable from './TaskTable';
-import { Train, Activity, AlertTriangle } from 'lucide-react';
+import TaskForm from './TaskForm';
+import { Train, Activity, AlertTriangle, Settings, Sliders, LayoutList } from 'lucide-react';
 
 export default function Dashboard() {
   const [loading, setLoading] = useState(true);
@@ -20,6 +21,7 @@ export default function Dashboard() {
     task_statuses: {},
   });
   const [error, setError] = useState(null);
+  const [activeTab, setActiveTab] = useState('setup'); // setup, control, action
 
   useEffect(() => {
     loadInitialData();
@@ -95,51 +97,120 @@ export default function Dashboard() {
           <strong>Note:</strong> Station and timetable data are derived from public Indian Railways data (approximate chainage). Maintenance tasks and goods-train forecasts are synthetic — no public source exists for either.
         </div>
 
-        <div className="flex justify-between items-end">
-          <div>
-            <h2 className="text-2xl font-bold text-rail-text-dark">Maintenance Block Plan</h2>
-            <p className="text-rail-text-muted text-sm">Coordinating multi-department requests with CP-SAT constraints</p>
-          </div>
-          <div className="flex items-center gap-4">
-            <select
-              value={horizon}
-              onChange={(e) => setHorizon(Number(e.target.value))}
-              disabled={optimizing}
-              className="px-4 py-2.5 border border-rail-border rounded shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-rail-blue/50"
-            >
-              <option value={1}>Daily (1 Day)</option>
-              <option value={7}>Weekly (7 Days)</option>
-              <option value={30}>Monthly (30 Days)</option>
-            </select>
-            <button 
-              onClick={handleOptimize}
-              disabled={optimizing}
-              className={`px-6 py-2.5 rounded shadow-sm text-white font-medium flex items-center gap-2 transition-colors ${
-                optimizing ? 'bg-rail-blue/70 cursor-not-allowed' : 'bg-rail-blue hover:bg-rail-blue/90'
-              }`}
-            >
-              <Activity className="w-4 h-4" />
-              {optimizing ? 'Running CP-SAT Solver...' : 'Generate Optimal Plan'}
-            </button>
-          </div>
+        {/* Tab Navigation */}
+        <div className="flex border-b border-rail-border mb-6">
+          <button
+            onClick={() => setActiveTab('setup')}
+            className={`px-6 py-3 font-medium text-sm flex items-center gap-2 border-b-2 transition-colors ${
+              activeTab === 'setup'
+                ? 'border-rail-blue text-rail-blue'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <Settings className="w-4 h-4" />
+            Data & Setup
+          </button>
+          <button
+            onClick={() => setActiveTab('control')}
+            className={`px-6 py-3 font-medium text-sm flex items-center gap-2 border-b-2 transition-colors ${
+              activeTab === 'control'
+                ? 'border-rail-blue text-rail-blue'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <Sliders className="w-4 h-4" />
+            Control Room
+          </button>
+          <button
+            onClick={() => setActiveTab('action')}
+            className={`px-6 py-3 font-medium text-sm flex items-center gap-2 border-b-2 transition-colors ${
+              activeTab === 'action'
+                ? 'border-rail-blue text-rail-blue'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <LayoutList className="w-4 h-4" />
+            Action Plan
+          </button>
         </div>
 
-        {data.metrics && <KPICards metrics={data.metrics} />}
-
-        {data.blocks.length > 0 && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2">
-              <CorridorTimeline corridor={data.corridor} timetables={data.timetables} forecasts={data.forecasts} blocks={data.blocks} horizonDays={horizon} />
+        {/* Tab Content */}
+        {activeTab === 'setup' && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-bold text-rail-text-dark mb-1">Data & Setup</h2>
+              <p className="text-rail-text-muted text-sm mb-4">Manage maintenance requests and view key performance indicators.</p>
             </div>
-            <div className="lg:col-span-1">
-              <BlockPlan blocks={data.blocks} tasks={data.tasks} />
+            {data.metrics && <KPICards metrics={data.metrics} />}
+            <TaskForm onTaskAdded={(updatedTasks) => setData((prev) => ({ ...prev, tasks: updatedTasks }))} />
+            <div className="mt-8">
+              <TaskTable tasks={data.tasks} blocks={data.blocks} taskStatuses={data.task_statuses} />
             </div>
           </div>
         )}
 
-        <div className="mt-8">
-          <TaskTable tasks={data.tasks} blocks={data.blocks} taskStatuses={data.task_statuses} />
-        </div>
+        {activeTab === 'control' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-end mb-4">
+              <div>
+                <h2 className="text-2xl font-bold text-rail-text-dark">Control Room</h2>
+                <p className="text-rail-text-muted text-sm">Coordinate multi-department requests with CP-SAT constraints.</p>
+              </div>
+              <div className="flex items-center gap-4">
+                <select
+                  value={horizon}
+                  onChange={(e) => setHorizon(Number(e.target.value))}
+                  disabled={optimizing}
+                  className="px-4 py-2.5 border border-rail-border rounded shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-rail-blue/50"
+                >
+                  <option value={1}>Daily (1 Day)</option>
+                  <option value={7}>Weekly (7 Days)</option>
+                  <option value={30}>Monthly (30 Days)</option>
+                </select>
+                <button 
+                  onClick={handleOptimize}
+                  disabled={optimizing}
+                  className={`px-6 py-2.5 rounded shadow-sm text-white font-medium flex items-center gap-2 transition-colors ${
+                    optimizing ? 'bg-rail-blue/70 cursor-not-allowed' : 'bg-rail-blue hover:bg-rail-blue/90'
+                  }`}
+                >
+                  <Activity className="w-4 h-4" />
+                  {optimizing ? 'Running CP-SAT Solver...' : 'Generate Optimal Plan'}
+                </button>
+              </div>
+            </div>
+            {data.blocks.length > 0 ? (
+              <CorridorTimeline corridor={data.corridor} timetables={data.timetables} forecasts={data.forecasts} blocks={data.blocks} horizonDays={horizon} />
+            ) : (
+              <div className="bg-white p-10 rounded-lg shadow-sm border border-rail-border text-center text-gray-500">
+                Run the CP-SAT solver to view the corridor timeline.
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'action' && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-bold text-rail-text-dark mb-1">Action Plan</h2>
+              <p className="text-rail-text-muted text-sm mb-4">Detailed view of the generated blocks and task assignments.</p>
+            </div>
+            {data.blocks.length > 0 ? (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div>
+                  <BlockPlan blocks={data.blocks} tasks={data.tasks} />
+                </div>
+                <div>
+                  <TaskTable tasks={data.tasks} blocks={data.blocks} taskStatuses={data.task_statuses} />
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white p-10 rounded-lg shadow-sm border border-rail-border text-center text-gray-500">
+                Run the CP-SAT solver in the Control Room to generate an action plan.
+              </div>
+            )}
+          </div>
+        )}
       </main>
     </div>
   );

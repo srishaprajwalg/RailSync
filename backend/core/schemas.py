@@ -56,6 +56,13 @@ class MaintenanceTask(BaseModel):
     
     priority_details: Optional[PriorityDetails] = None
 
+class MaintenanceTaskCreate(BaseModel):
+    department: str
+    start_km: float
+    end_km: float
+    duration_mins: int
+    severity: int
+
 class PlannedBlock(BaseModel):
     id: str
     start_time_mins: int

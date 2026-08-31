@@ -37,3 +37,15 @@ export const fetchTasks = async () => {
   if (!response.ok) throw new Error('Failed to fetch tasks');
   return response.json();
 };
+
+export const addTask = async (taskData) => {
+  const response = await fetch(`${API_BASE_URL}/tasks`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(taskData),
+  });
+  if (!response.ok) throw new Error('Failed to add task');
+  return response.json();
+};
