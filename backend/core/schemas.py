@@ -53,6 +53,7 @@ class MaintenanceTask(BaseModel):
     duration_mins: int
     deadline_mins: int      # Absolute minutes from horizon start
     line_direction: str
+    required_resource: Optional[str] = None
     
     priority_details: Optional[PriorityDetails] = None
     lifecycle_status: str = "Reported"

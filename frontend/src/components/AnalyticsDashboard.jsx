@@ -59,7 +59,19 @@ export default function AnalyticsDashboard({ tasks, blocks, taskStatuses, metric
     return bins.filter(b => b.tasks > 0);
   }, [tasks]);
 
-  // 5. Key Insights Generator
+  // 5. Resource Demand
+  const resourceStats = useMemo(() => {
+    const counts = {};
+    tasks.forEach(t => {
+      if (t.lifecycle_status === 'Completed') return;
+      const res = t.required_resource || 'General Crew';
+      if (!counts[res]) counts[res] = 0;
+      counts[res]++;
+    });
+    return Object.entries(counts).map(([name, Demand]) => ({ name, Demand })).sort((a, b) => b.Demand - a.Demand);
+  }, [tasks]);
+
+  // 6. Key Insights Generator
   const insights = useMemo(() => {
     const generated = [];
     
@@ -233,6 +245,22 @@ export default function AnalyticsDashboard({ tasks, blocks, taskStatuses, metric
           </div>
         </div>
 
+        {/* Resource Demand */}
+        <div className="bg-white p-5 rounded-lg shadow-sm border border-rail-border lg:col-span-2">
+          <h3 className="text-sm font-bold text-gray-800 mb-1 flex items-center gap-1"><Layers className="w-4 h-4"/> Resource Demand</h3>
+          <p className="text-xs text-gray-500 mb-4">Active tasks grouped by required maintenance resource</p>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={resourceStats} margin={{ top: 10, right: 10, left: 10, bottom: 0 }} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                <XAxis type="number" tick={{fontSize: 10}} />
+                <YAxis dataKey="name" type="category" width={150} tick={{fontSize: 10}} />
+                <RechartsTooltip cursor={{fill: '#f3f4f6'}} contentStyle={{fontSize: '12px'}} />
+                <Bar dataKey="Demand" fill="#f59e0b" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
       </div>
     </div>
   );

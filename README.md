@@ -31,20 +31,18 @@ The prototype is currently implemented with the following stack and components:
 - **Real Corridor Data Engine** (`real_corridor.py`): Loads station and schedule data from the [`datameet/railways`](https://github.com/datameet/railways) public dataset. Computes approximate chainage via Haversine distance, classifies train types by name heuristics, infers Up/Down direction, and interpolates missing intermediate stops.
 - **Mock Data Engine** (`mock_data.py`): A deterministic simulation generator that produces ~100 varied maintenance requests (Track, Signalling, Traction) and goods train forecast windows across the planning horizon.
 - **Pydantic**: Enforces strict schemas for `Station`, `TrainSchedule`, `GoodsTrainForecast`, `MaintenanceTask`, and `PlannedBlock`.
-- **Department Auto-Routing**: Maintenance tasks reported via the frontend are automatically mapped to their respective internal departments (Engineering / Track, Signalling, or Electrical / Traction) based on the maintenance activity type.
+- **Department Auto-Routing & Resourcing**: Maintenance tasks reported via the frontend are automatically mapped to their respective internal departments (Engineering, Signalling, Electrical) and dynamically assigned a specific `required_resource` based on the activity.
 - **Task Lifecycle Management**: Separates a task's operational status (`Reported`, `Prioritized`, `In Progress`, `Completed`) from its AI planning status. Completed tasks remain stored as historical records (for future analytics) but are explicitly excluded from future CP-SAT optimization. Note: Restarting the in-memory backend currently resets all prototype data.
 - **AI Prioritization Engine**: An explainable, deterministic scoring model that evaluates defects, routine maintenance, severity, asset criticality, overdue days, and deadline urgency to generate an interpretable priority score (0-100).
-- **Optimization Engine (OR-Tools CP-SAT)**: A task-specific spatiotemporal constraint model that replaces global line gap analysis and natively supports configurable planning horizons (Daily, Weekly, Monthly).
+- **Optimization Engine (OR-Tools CP-SAT)**: A single global spatiotemporal constraint model that simultaneously schedules tasks while respecting capacity across the entire corridor.
   - Configurable horizon lengths using absolute minutes from Day 0, scaling naturally for multi-day optimization.
   - Passenger train occupancy is interpolated at the task's relevant chainage.
-  - **Freight Uncertainty Model**: Goods-train forecasts are modeled dynamically via expected transit windows across the corridor based on an assumed 40 km/h nominal speed. The optimizer secures a spatiotemporal protected window for the freight train, ensuring a conservative but realistic representation of uncertainty instead of statically reserving the entire corridor for hours.
+  - **Freight Uncertainty Model**: Goods-train forecasts are modeled dynamically via expected transit windows.
+  - **Resource-Aware Limits**: Ensures we don't overschedule limited maintenance machines or crews globally. If there is only 1 Tamping Machine available, the CP-SAT engine will serialize any tasks requiring it, even across different track directions.
   - Maintenance intervals are padded with a configurable safety margin.
   - CP-SAT strictly enforces no-overlap constraints between maintenance intervals and conflicting train occupancies.
-  - **Explainable Task Statuses**: The engine distinctly categorizes active tasks into `Planned` (scheduled), `Infeasible` (genuinely mathematically impossible due to hard constraints or train overlaps within deadline), or `Deferred` (feasible, but skipped due to capacity limits or lower priority).
-  - **Objective Function Hierarchy**: A rigorous weighted lexicographic objective that:
-    1. Maximizes the total number of feasible tasks scheduled.
-    2. Prioritizes high-urgency tasks when capacity is limited.
-    3. Prefers earlier execution, natively forcing compatible tasks to consolidate into shared block windows.
+  - **Explainable Task Statuses**: The engine distinctly categorizes active tasks into `Planned` (scheduled), `Infeasible` (impossible), or `Deferred` (feasible, but skipped due to capacity limits).
+  - **Objective Function Hierarchy**: A rigorous weighted lexicographic objective that maximizes scheduled tasks, prioritizes urgency, and minimizes block length.
 
 ### Block Semantics & Consolidation Behavior
 - A `PlannedBlock` represents a protected planning window.
@@ -76,9 +74,9 @@ The platform strictly enforces the separation of business logic (backend) from p
 
 1. **Maintenance Report**: User enters operational facts (activity, severity, location, etc.) and theoretical duration into the dashboard.
 2. **Backend Validation & Priority**: Frontend requests a priority preview. The backend securely validates the schema and runs the AI prioritization engine.
-3. **Department Routing**: Upon submission, the backend automatically routes the task to the correct internal department and assigns it a lifecycle status of `Prioritized`.
+3. **Department Routing & Resourcing**: Upon submission, the backend automatically routes the task to the correct internal department, identifies the `required_resource`, and assigns it a lifecycle status of `Prioritized`.
 4. **Active Task Pool**: Tasks enter the central planning queue, available for all permitted users and departments.
-5. **CP-SAT Optimization**: User selects a planning horizon (1, 7, or 30 days) and triggers the optimizer (`POST /api/optimize`). The CP-SAT engine calculates exact spatiotemporal train overlaps, applies compatibility rules, and strictly excludes any `Completed` tasks.
+5. **CP-SAT Optimization**: User selects a planning horizon (1, 7, or 30 days) and triggers the optimizer (`POST /api/optimize`). The CP-SAT engine calculates exact spatiotemporal train overlaps, applies compatibility rules, enforces global resource capacities, and strictly excludes any `Completed` tasks.
 6. **Human-Readable Block Plan**: The API returns the optimized blocks and metrics. The frontend visualizes the results on a scaled Time-Distance graph and plain-language action plans.
 7. **Work Progress**: Through the UI, tasks can be marked as `In Progress` when field execution starts.
 8. **Completion**: Tasks are marked as `Completed` via the frontend action buttons.
@@ -136,7 +134,7 @@ The current system relies on the following operational abstractions and limitati
 - Station chainage is approximated/interpolated from geographic coordinates (Haversine), not official Indian Railways engineering chainage.
 - Uniform-speed interpolation is assumed between stations for missing intermediate stops.
 - Goods-train forecast uncertainty uses a synthetic transit window based on an assumed 40 km/h nominal speed.
-- Resource constraints (e.g., track machines, manpower availability) are not yet implemented.
+- Resource constraints (e.g., Track machines, manpower) are a simplified capacity prototype, not precise shift rostering or geographic depot tracking.
 - Station/block-section possession logic (closing full sections between stations) is not yet modeled; blocks strictly use task min/max km.
 - Complex topology (loop lines, yard logic, crossovers) is not yet modeled; everything assumes strict Up or Down linear chainage.
 - Duration estimates provided by the API are explicitly prototype defaults and do not represent official Indian Railways standard times.

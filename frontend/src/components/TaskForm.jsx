@@ -35,7 +35,8 @@ export default function TaskForm({ onTaskAdded }) {
           ...prev,
           task_type: firstKey,
           department: defaults[firstKey].department,
-          duration_mins: defaults[firstKey].duration_mins
+          duration_mins: defaults[firstKey].duration_mins,
+          required_resource: defaults[firstKey].required_resource
         }));
       }
     }).catch(err => console.error("Failed to load task defaults", err));
@@ -77,6 +78,7 @@ export default function TaskForm({ onTaskAdded }) {
       if (name === 'task_type' && taskDefaults[value]) {
         updates.duration_mins = taskDefaults[value].duration_mins;
         updates.department = taskDefaults[value].department;
+        updates.required_resource = taskDefaults[value].required_resource;
       }
       
       return { ...prev, ...updates };
@@ -141,9 +143,14 @@ export default function TaskForm({ onTaskAdded }) {
                       <option key={task} value={task}>{task}</option>
                     ))}
                   </select>
-                  <p className="text-xs text-rail-blue mt-2 font-medium bg-blue-50 inline-block px-2 py-1 rounded">
-                    Routed to: {formData.department || (taskDefaults[formData.task_type]?.department)}
-                  </p>
+                  <div className="flex flex-col gap-1 mt-2">
+                    <p className="text-xs text-rail-blue font-medium bg-blue-50 inline-block px-2 py-1 rounded w-fit">
+                      Routed to: {formData.department || (taskDefaults[formData.task_type]?.department)}
+                    </p>
+                    <p className="text-xs text-purple-700 font-medium bg-purple-50 inline-block px-2 py-1 rounded w-fit">
+                      Required resource: {formData.required_resource || (taskDefaults[formData.task_type]?.required_resource)}
+                    </p>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Line Direction</label>

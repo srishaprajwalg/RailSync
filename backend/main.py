@@ -24,7 +24,30 @@ app.add_middleware(
 # Goods forecasts and maintenance tasks: synthetic (no public source exists)
 timetables = get_real_timetables()
 goods_forecasts = generate_mock_goods_forecasts()
-tasks = prioritize_tasks(generate_mock_tasks(), current_time_mins=0)
+
+ACTIVITY_TO_RESOURCE = {
+    "Track Tamping": "Tamping Machine",
+    "Rail Fracture Repair": "Track Repair Crew",
+    "Routine Inspection": "Track Inspection Crew",
+    "Point Overhaul": "Signalling Maintenance Crew",
+    "Signal Failure": "Signalling Maintenance Crew",
+    "OHE Maintenance": "OHE Maintenance Crew",
+    "Insulator Flashover": "Electrical Response Crew"
+}
+
+RESOURCE_CAPACITY = {
+    "Tamping Machine": 1,
+    "Track Repair Crew": 1,
+    "Track Inspection Crew": 1,
+    "Signalling Maintenance Crew": 1,
+    "OHE Maintenance Crew": 1,
+    "Electrical Response Crew": 1
+}
+
+mock_tasks = generate_mock_tasks()
+for t in mock_tasks:
+    t.required_resource = ACTIVITY_TO_RESOURCE.get(t.task_type, "General Crew")
+tasks = prioritize_tasks(mock_tasks, current_time_mins=0)
 planned_blocks = []
 
 @app.get("/api/corridor", response_model=List[Station])
@@ -54,15 +77,15 @@ ACTIVITY_TO_DEPT = {
     "Insulator Flashover": "Electrical / Traction"
 }
 
-# Overriding TASK_DEFAULTS to use the new department names
+# Overriding TASK_DEFAULTS to use the new department names and resource types
 TASK_DEFAULTS = {
-    "Track Tamping": {"department": "Engineering / Track", "duration_mins": 120},
-    "Rail Fracture Repair": {"department": "Engineering / Track", "duration_mins": 180},
-    "Point Overhaul": {"department": "Signalling", "duration_mins": 240},
-    "Signal Failure": {"department": "Signalling", "duration_mins": 60},
-    "OHE Maintenance": {"department": "Electrical / Traction", "duration_mins": 120},
-    "Insulator Flashover": {"department": "Electrical / Traction", "duration_mins": 120},
-    "Routine Inspection": {"department": "Engineering / Track", "duration_mins": 90},
+    "Track Tamping": {"department": "Engineering / Track", "duration_mins": 120, "required_resource": "Tamping Machine"},
+    "Rail Fracture Repair": {"department": "Engineering / Track", "duration_mins": 180, "required_resource": "Track Repair Crew"},
+    "Point Overhaul": {"department": "Signalling", "duration_mins": 240, "required_resource": "Signalling Maintenance Crew"},
+    "Signal Failure": {"department": "Signalling", "duration_mins": 60, "required_resource": "Signalling Maintenance Crew"},
+    "OHE Maintenance": {"department": "Electrical / Traction", "duration_mins": 120, "required_resource": "OHE Maintenance Crew"},
+    "Insulator Flashover": {"department": "Electrical / Traction", "duration_mins": 120, "required_resource": "Electrical Response Crew"},
+    "Routine Inspection": {"department": "Engineering / Track", "duration_mins": 90, "required_resource": "Track Inspection Crew"},
 }
 
 @app.get("/api/tasks", response_model=List[MaintenanceTask])
@@ -93,6 +116,7 @@ def preview_priority(task_in: MaintenanceTaskCreate):
         duration_mins=task_in.duration_mins,
         deadline_mins=task_in.deadline_mins,
         line_direction=task_in.line_direction,
+        required_resource=ACTIVITY_TO_RESOURCE.get(task_in.task_type, "General Crew"),
         lifecycle_status="Reported"
     )
     from services.ai_prioritizer import calculate_task_priority
@@ -117,6 +141,7 @@ def add_task(task_in: MaintenanceTaskCreate):
         duration_mins=task_in.duration_mins,
         deadline_mins=task_in.deadline_mins,
         line_direction=task_in.line_direction,
+        required_resource=ACTIVITY_TO_RESOURCE.get(task_in.task_type, "General Crew"),
         lifecycle_status="Reported"
     )
     # The moment a task is added, it transitions conceptually to Prioritized
@@ -142,7 +167,8 @@ def run_optimization(request: OptimizeRequest = OptimizeRequest()):
     planned_blocks, status_map = optimize_blocks(
         tasks, timetables, goods_forecasts, 
         horizon_days=request.horizon_days, 
-        safety_margin=15
+        safety_margin=15,
+        resource_capacities=RESOURCE_CAPACITY
     )
     
     # Calculate detailed horizon-aware metrics
