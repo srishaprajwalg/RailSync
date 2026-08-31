@@ -5,7 +5,8 @@ import BlockPlan from './BlockPlan';
 import CorridorTimeline from './CorridorTimeline';
 import TaskTable from './TaskTable';
 import TaskForm from './TaskForm';
-import { Train, Activity, AlertTriangle, Settings, Sliders, LayoutList } from 'lucide-react';
+import AnalyticsDashboard from './AnalyticsDashboard';
+import { Train, Activity, AlertTriangle, Settings, Sliders, LayoutList, TrendingUp } from 'lucide-react';
 
 export default function Dashboard() {
   const [loading, setLoading] = useState(true);
@@ -21,7 +22,7 @@ export default function Dashboard() {
     task_statuses: {},
   });
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState('setup'); // setup, control, action
+  const [activeTab, setActiveTab] = useState('analytics'); // setup, control, action, analytics
 
   useEffect(() => {
     loadInitialData();
@@ -107,10 +108,21 @@ export default function Dashboard() {
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex border-b border-rail-border mb-6">
+        <div className="flex border-b border-rail-border mb-6 overflow-x-auto">
+          <button
+            onClick={() => setActiveTab('analytics')}
+            className={`px-6 py-3 font-medium text-sm flex items-center gap-2 border-b-2 transition-colors whitespace-nowrap ${
+              activeTab === 'analytics'
+                ? 'border-rail-blue text-rail-blue'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <TrendingUp className="w-4 h-4" />
+            Decision Intelligence
+          </button>
           <button
             onClick={() => setActiveTab('setup')}
-            className={`px-6 py-3 font-medium text-sm flex items-center gap-2 border-b-2 transition-colors ${
+            className={`px-6 py-3 font-medium text-sm flex items-center gap-2 border-b-2 transition-colors whitespace-nowrap ${
               activeTab === 'setup'
                 ? 'border-rail-blue text-rail-blue'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -121,7 +133,7 @@ export default function Dashboard() {
           </button>
           <button
             onClick={() => setActiveTab('control')}
-            className={`px-6 py-3 font-medium text-sm flex items-center gap-2 border-b-2 transition-colors ${
+            className={`px-6 py-3 font-medium text-sm flex items-center gap-2 border-b-2 transition-colors whitespace-nowrap ${
               activeTab === 'control'
                 ? 'border-rail-blue text-rail-blue'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -132,7 +144,7 @@ export default function Dashboard() {
           </button>
           <button
             onClick={() => setActiveTab('action')}
-            className={`px-6 py-3 font-medium text-sm flex items-center gap-2 border-b-2 transition-colors ${
+            className={`px-6 py-3 font-medium text-sm flex items-center gap-2 border-b-2 transition-colors whitespace-nowrap ${
               activeTab === 'action'
                 ? 'border-rail-blue text-rail-blue'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -144,6 +156,22 @@ export default function Dashboard() {
         </div>
 
         {/* Tab Content */}
+        {activeTab === 'analytics' && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-bold text-rail-text-dark mb-1">Decision Intelligence</h2>
+              <p className="text-rail-text-muted text-sm mb-4">Analyze workload distribution, lifecycle progress, and optimization impact.</p>
+            </div>
+            <AnalyticsDashboard 
+              tasks={data.tasks} 
+              blocks={data.blocks} 
+              taskStatuses={data.task_statuses} 
+              metrics={data.metrics}
+              corridor={data.corridor}
+            />
+          </div>
+        )}
+
         {activeTab === 'setup' && (
           <div className="space-y-6">
             <div>
