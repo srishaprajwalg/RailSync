@@ -55,9 +55,11 @@ class MaintenanceTask(BaseModel):
     line_direction: str
     
     priority_details: Optional[PriorityDetails] = None
+    lifecycle_status: str = "Reported"
 
 class MaintenanceTaskCreate(BaseModel):
-    department: str
+    # department is now auto-mapped by the backend based on task_type, so we can make it optional or remove it
+    department: Optional[str] = None
     task_type: str
     origin: str
     severity: int
@@ -98,3 +100,5 @@ class OptimizationResult(BaseModel):
     blocks: List[PlannedBlock]
     metrics: OptimizationMetrics
 
+class TaskStatusUpdate(BaseModel):
+    lifecycle_status: str

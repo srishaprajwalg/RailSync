@@ -67,3 +67,15 @@ export const fetchTaskDefaults = async () => {
   if (!response.ok) throw new Error('Failed to fetch task defaults');
   return response.json();
 };
+
+export const updateTaskStatus = async (taskId, status) => {
+  const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/status`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ lifecycle_status: status }),
+  });
+  if (!response.ok) throw new Error('Failed to update task status');
+  return response.json();
+};

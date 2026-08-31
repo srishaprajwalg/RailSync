@@ -110,27 +110,46 @@ export default function CorridorTimeline({ corridor, timetables, forecasts, bloc
 
           {/* Goods Train Forecast Windows */}
           {filteredForecasts.map((forecast) => {
-            const x1 = getX(forecast.earliest_entry_mins);
-            const w = Math.max(getX(forecast.latest_exit_mins) - x1, 2);
-            const y1 = getY(forecast.start_km);
-            const h = getY(forecast.end_km) - y1;
+            const totalDist = Math.abs(forecast.end_km - forecast.start_km);
+            const nominalSpeedKmh = 40.0;
+            const expectedTransitMins = Math.min(
+               Math.floor((totalDist / nominalSpeedKmh) * 60), 
+               forecast.latest_exit_mins - forecast.earliest_entry_mins
+            );
             
-            const rectY = Math.min(y1, y1 + h);
-            const rectH = Math.abs(h);
+            const totalWindowMins = forecast.latest_exit_mins - forecast.earliest_entry_mins;
+            const uncertaintyBufferMins = totalWindowMins - expectedTransitMins;
+            const expectedCorridorEntry = forecast.earliest_entry_mins + Math.floor(uncertaintyBufferMins / 2);
+            
+            const yStart = getY(forecast.start_km);
+            const yEnd = getY(forecast.end_km);
+            
+            const xExpectedStart = getX(expectedCorridorEntry);
+            const xExpectedEnd = getX(expectedCorridorEntry + expectedTransitMins);
+            
+            const xEarliestStart = getX(expectedCorridorEntry - Math.floor(uncertaintyBufferMins / 2));
+            const xLatestStart = getX(expectedCorridorEntry + Math.floor(uncertaintyBufferMins / 2));
+            
+            const xEarliestEnd = getX(expectedCorridorEntry + expectedTransitMins - Math.floor(uncertaintyBufferMins / 2));
+            const xLatestEnd = getX(expectedCorridorEntry + expectedTransitMins + Math.floor(uncertaintyBufferMins / 2));
+            
+            const points = `${xEarliestStart},${yStart} ${xLatestStart},${yStart} ${xLatestEnd},${yEnd} ${xEarliestEnd},${yEnd}`;
             
             return (
               <g key={forecast.forecast_id}>
-                <title>Freight Train Window: Reserved space for goods train between Km {forecast.start_km} and {forecast.end_km}.</title>
-                <rect 
-                  x={x1} 
-                  y={rectY} 
-                  width={w} 
-                  height={rectH || 4}
+                <title>Expected freight movement with protected uncertainty safety window.</title>
+                <polygon 
+                  points={points}
                   fill="#94a3b8" 
-                  fillOpacity="0.15" 
-                  stroke="#cbd5e1" 
+                  fillOpacity="0.2" 
+                  stroke="#94a3b8" 
                   strokeWidth="1"
                   strokeDasharray="2,2"
+                />
+                <line 
+                  x1={xExpectedStart} y1={yStart} 
+                  x2={xExpectedEnd} y2={yEnd} 
+                  stroke="#64748b" strokeWidth="1.5" strokeDasharray="4,4" opacity="0.8"
                 />
               </g>
             );

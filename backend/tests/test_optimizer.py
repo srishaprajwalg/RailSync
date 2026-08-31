@@ -97,3 +97,21 @@ def test_existing_valid_block_behavior_deadline():
     
     assert statuses["T1"] == "Infeasible"
     assert len(blocks) == 0
+
+def test_completed_tasks_are_excluded():
+    task1 = create_task("T1", "TMS", "Track Tamping", 10.0, 12.0, 120)
+    task1.lifecycle_status = "Completed"
+    
+    blocks, statuses = optimize_blocks([task1], [], [], horizon_days=1)
+    
+    assert "T1" not in statuses  # Should not even be in the status map
+    assert len(blocks) == 0
+
+def test_non_completed_task_remains_eligible():
+    task1 = create_task("T1", "TMS", "Track Tamping", 10.0, 12.0, 120)
+    task1.lifecycle_status = "Prioritized"
+    
+    blocks, statuses = optimize_blocks([task1], [], [], horizon_days=1)
+    
+    assert statuses["T1"] == "Planned"
+    assert len(blocks) == 1

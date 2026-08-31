@@ -42,13 +42,27 @@ def get_goods_forecasts():
     """Returns the simulated goods train forecasts."""
     return goods_forecasts
 
+from core.schemas import TaskStatusUpdate
+
+ACTIVITY_TO_DEPT = {
+    "Track Tamping": "Engineering / Track",
+    "Rail Fracture Repair": "Engineering / Track",
+    "Routine Inspection": "Engineering / Track",
+    "Point Overhaul": "Signalling",
+    "Signal Failure": "Signalling",
+    "OHE Maintenance": "Electrical / Traction",
+    "Insulator Flashover": "Electrical / Traction"
+}
+
+# Overriding TASK_DEFAULTS to use the new department names
 TASK_DEFAULTS = {
-    "Track Tamping": {"department": "TMS", "duration_mins": 120},
-    "Rail Fracture Repair": {"department": "TMS", "duration_mins": 180},
-    "Point Overhaul": {"department": "SMMS", "duration_mins": 240},
-    "Signal Failure": {"department": "SMMS", "duration_mins": 60},
-    "OHE Maintenance": {"department": "TDMS", "duration_mins": 120},
-    "Routine Inspection": {"department": "TMS", "duration_mins": 90},
+    "Track Tamping": {"department": "Engineering / Track", "duration_mins": 120},
+    "Rail Fracture Repair": {"department": "Engineering / Track", "duration_mins": 180},
+    "Point Overhaul": {"department": "Signalling", "duration_mins": 240},
+    "Signal Failure": {"department": "Signalling", "duration_mins": 60},
+    "OHE Maintenance": {"department": "Electrical / Traction", "duration_mins": 120},
+    "Insulator Flashover": {"department": "Electrical / Traction", "duration_mins": 120},
+    "Routine Inspection": {"department": "Engineering / Track", "duration_mins": 90},
 }
 
 @app.get("/api/tasks", response_model=List[MaintenanceTask])
@@ -64,9 +78,11 @@ def get_task_defaults():
 @app.post("/api/tasks/preview-priority", response_model=PriorityDetails)
 def preview_priority(task_in: MaintenanceTaskCreate):
     """Preview the AI priority score without creating the task."""
+    dept = ACTIVITY_TO_DEPT.get(task_in.task_type, "Unknown")
+    
     dummy_task = MaintenanceTask(
         id="PREVIEW",
-        department=task_in.department,
+        department=dept,
         task_type=task_in.task_type,
         origin=task_in.origin,
         severity=task_in.severity,
@@ -76,7 +92,8 @@ def preview_priority(task_in: MaintenanceTaskCreate):
         end_km=task_in.end_km,
         duration_mins=task_in.duration_mins,
         deadline_mins=task_in.deadline_mins,
-        line_direction=task_in.line_direction
+        line_direction=task_in.line_direction,
+        lifecycle_status="Reported"
     )
     from services.ai_prioritizer import calculate_task_priority
     return calculate_task_priority(dummy_task, current_time_mins=0)
@@ -85,9 +102,11 @@ def preview_priority(task_in: MaintenanceTaskCreate):
 def add_task(task_in: MaintenanceTaskCreate):
     """Add a new manual task and return the updated task list."""
     global tasks
+    dept = ACTIVITY_TO_DEPT.get(task_in.task_type, "Unknown")
+    
     new_task = MaintenanceTask(
         id=f"MANUAL-{uuid.uuid4().hex[:6].upper()}",
-        department=task_in.department,
+        department=dept,
         task_type=task_in.task_type,
         origin=task_in.origin,
         severity=task_in.severity,
@@ -97,10 +116,23 @@ def add_task(task_in: MaintenanceTaskCreate):
         end_km=task_in.end_km,
         duration_mins=task_in.duration_mins,
         deadline_mins=task_in.deadline_mins,
-        line_direction=task_in.line_direction
+        line_direction=task_in.line_direction,
+        lifecycle_status="Reported"
     )
+    # The moment a task is added, it transitions conceptually to Prioritized
     new_task = prioritize_tasks([new_task], current_time_mins=0)[0]
+    new_task.lifecycle_status = "Prioritized"
+    
     tasks.append(new_task)
+    return tasks
+
+@app.put("/api/tasks/{task_id}/status", response_model=List[MaintenanceTask])
+def update_task_status(task_id: str, status_update: TaskStatusUpdate):
+    """Update a task's lifecycle status."""
+    global tasks
+    for task in tasks:
+        if task.id == task_id:
+            task.lifecycle_status = status_update.lifecycle_status
     return tasks
 
 @app.post("/api/optimize", response_model=Dict[str, Any])

@@ -96,3 +96,83 @@ def test_priority_changes_with_severity():
     score5 = res5.json()["score"]
     
     assert score5 > score1
+
+def test_newly_created_task_lifecycle_status():
+    payload = {
+        "task_type": "Track Tamping",
+        "origin": "Routine Maintenance",
+        "severity": 1,
+        "overdue_days": 0,
+        "asset_criticality": 1,
+        "start_km": 10.0,
+        "end_km": 12.0,
+        "duration_mins": 90,
+        "deadline_mins": 10080,
+        "line_direction": "Up"
+    }
+    res = client.post("/api/tasks", json=payload)
+    assert res.status_code == 200
+    added_task = res.json()[-1]
+    assert added_task["lifecycle_status"] == "Prioritized"
+
+def test_department_inferred_from_activity():
+    payload = {
+        "task_type": "Signal Failure",
+        "origin": "Defect",
+        "severity": 5,
+        "overdue_days": 0,
+        "asset_criticality": 5,
+        "start_km": 10.0,
+        "end_km": 12.0,
+        "duration_mins": 60,
+        "deadline_mins": 1440,
+        "line_direction": "Up"
+    }
+    res = client.post("/api/tasks", json=payload)
+    added_task = res.json()[-1]
+    assert added_task["department"] == "Signalling"
+
+def test_unknown_activity_safe():
+    payload = {
+        "task_type": "Laser Alignment",
+        "origin": "Routine Maintenance",
+        "severity": 1,
+        "overdue_days": 0,
+        "asset_criticality": 1,
+        "start_km": 10.0,
+        "end_km": 12.0,
+        "duration_mins": 60,
+        "deadline_mins": 1440,
+        "line_direction": "Up"
+    }
+    res = client.post("/api/tasks", json=payload)
+    added_task = res.json()[-1]
+    assert added_task["department"] == "Unknown"
+    assert added_task["lifecycle_status"] == "Prioritized"
+
+def test_update_lifecycle_status():
+    # First add a task
+    payload = {
+        "task_type": "Track Tamping",
+        "origin": "Routine Maintenance",
+        "severity": 1,
+        "overdue_days": 0,
+        "asset_criticality": 1,
+        "start_km": 10.0,
+        "end_km": 12.0,
+        "duration_mins": 90,
+        "deadline_mins": 10080,
+        "line_direction": "Up"
+    }
+    res = client.post("/api/tasks", json=payload)
+    added_task = res.json()[-1]
+    task_id = added_task["id"]
+    
+    # Now update it
+    update_res = client.put(f"/api/tasks/{task_id}/status", json={"lifecycle_status": "Completed"})
+    assert update_res.status_code == 200
+    
+    # Verify it updated
+    tasks_list = update_res.json()
+    updated_task = next(t for t in tasks_list if t["id"] == task_id)
+    assert updated_task["lifecycle_status"] == "Completed"

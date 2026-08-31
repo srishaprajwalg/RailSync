@@ -56,9 +56,12 @@ def optimize_blocks(
     planned_blocks = []
     task_status_map = {}
     
+    # 0. Filter out completed tasks from active planning
+    active_tasks = [t for t in tasks if getattr(t, 'lifecycle_status', '') != "Completed"]
+    
     # We will plan per line direction separately
     for direction in ["Up", "Down"]:
-        dir_tasks = [t for t in tasks if t.line_direction == direction]
+        dir_tasks = [t for t in active_tasks if t.line_direction == direction]
         if not dir_tasks:
             continue
             

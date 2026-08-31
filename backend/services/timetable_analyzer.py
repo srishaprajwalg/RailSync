@@ -86,7 +86,7 @@ def get_passenger_train_occupancy(schedules: List[TrainSchedule], line_direction
 
 def get_goods_train_occupancy(forecasts: List[GoodsTrainForecast], line_direction: str, task_start_km: float, task_end_km: float) -> List[Tuple[int, int]]:
     """
-    Returns time intervals when goods trains MIGHT occupy the task segment based on their forecast window.
+    Returns time intervals when goods trains MIGHT occupy the task segment based on a prototype freight uncertainty model.
     """
     occupancies = []
     start_km = min(task_start_km, task_end_km)
@@ -96,31 +96,43 @@ def get_goods_train_occupancy(forecasts: List[GoodsTrainForecast], line_directio
         if forecast.direction != line_direction:
             continue
             
-        # Simplified interpolation for the uncertainty window
-        # The goods train travels from forecast.start_km to forecast.end_km
         total_dist = abs(forecast.end_km - forecast.start_km)
         if total_dist == 0:
             continue
             
         if forecast.direction == "Up":
-            # Up: lower to higher chainage
             frac_enter = (start_km - forecast.start_km) / total_dist
             frac_exit = (end_km - forecast.start_km) / total_dist
         else:
-            # Down: higher to lower chainage
             frac_enter = (forecast.start_km - end_km) / total_dist
             frac_exit = (forecast.start_km - start_km) / total_dist
 
-        # Clamp fractions
         frac_enter = max(0.0, min(1.0, frac_enter))
         frac_exit = max(0.0, min(1.0, frac_exit))
         
-        total_time_window = forecast.latest_exit_mins - forecast.earliest_entry_mins
+        # PROTOTYPE FREIGHT UNCERTAINTY MODEL
+        # We assume a nominal freight speed of ~40 km/h to determine expected transit time.
+        # The remaining time in the forecast window is treated as the safety/uncertainty buffer.
+        nominal_speed_kmh = 40.0
+        expected_transit_mins = int((total_dist / nominal_speed_kmh) * 60)
         
-        # We calculate the earliest possible entry and latest possible exit for this segment
-        # Goods trains can be anywhere in this expanding window.
-        earliest_segment_entry = forecast.earliest_entry_mins + int(frac_enter * (total_time_window * 0.5))
-        latest_segment_exit = forecast.latest_exit_mins - int((1 - frac_exit) * (total_time_window * 0.5))
+        total_window_mins = forecast.latest_exit_mins - forecast.earliest_entry_mins
+        
+        if expected_transit_mins > total_window_mins:
+            expected_transit_mins = total_window_mins
+            
+        uncertainty_buffer_mins = total_window_mins - expected_transit_mins
+        
+        # Expected times for the whole corridor
+        expected_corridor_entry = forecast.earliest_entry_mins + (uncertainty_buffer_mins // 2)
+        
+        # Expected times for this specific segment
+        segment_expected_enter = expected_corridor_entry + int(frac_enter * expected_transit_mins)
+        segment_expected_exit = expected_corridor_entry + int(frac_exit * expected_transit_mins)
+        
+        # The protected uncertainty window for this segment applies half the buffer before and after expected passage
+        earliest_segment_entry = segment_expected_enter - (uncertainty_buffer_mins // 2)
+        latest_segment_exit = segment_expected_exit + (uncertainty_buffer_mins // 2)
         
         if earliest_segment_entry < latest_segment_exit:
             occupancies.append((earliest_segment_entry, latest_segment_exit))

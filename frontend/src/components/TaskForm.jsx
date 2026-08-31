@@ -141,6 +141,9 @@ export default function TaskForm({ onTaskAdded }) {
                       <option key={task} value={task}>{task}</option>
                     ))}
                   </select>
+                  <p className="text-xs text-rail-blue mt-2 font-medium bg-blue-50 inline-block px-2 py-1 rounded">
+                    Routed to: {formData.department || (taskDefaults[formData.task_type]?.department)}
+                  </p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Line Direction</label>

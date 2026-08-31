@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { fetchCorridor, fetchTimetables, fetchTasks, fetchGoodsForecasts, optimizeBlocks } from '../services/api';
+import { fetchCorridor, fetchTimetables, fetchTasks, fetchGoodsForecasts, optimizeBlocks, updateTaskStatus } from '../services/api';
 import KPICards from './KPICards';
 import BlockPlan from './BlockPlan';
 import CorridorTimeline from './CorridorTimeline';
@@ -58,6 +58,15 @@ export default function Dashboard() {
     } catch (err) {
       setError(err.message);
       setOptimizing(false);
+    }
+  };
+  
+  const handleStatusUpdate = async (taskId, newStatus) => {
+    try {
+      const updatedTasks = await updateTaskStatus(taskId, newStatus);
+      setData(prev => ({ ...prev, tasks: updatedTasks }));
+    } catch (err) {
+      setError("Failed to update status: " + err.message);
     }
   };
 
@@ -144,7 +153,7 @@ export default function Dashboard() {
             {data.metrics && <KPICards metrics={data.metrics} />}
             <TaskForm onTaskAdded={(updatedTasks) => setData((prev) => ({ ...prev, tasks: updatedTasks }))} />
             <div className="mt-8">
-              <TaskTable tasks={data.tasks} blocks={data.blocks} taskStatuses={data.task_statuses} />
+              <TaskTable tasks={data.tasks} blocks={data.blocks} taskStatuses={data.task_statuses} onUpdateStatus={handleStatusUpdate} />
             </div>
           </div>
         )}
@@ -201,7 +210,7 @@ export default function Dashboard() {
                   <BlockPlan blocks={data.blocks} tasks={data.tasks} />
                 </div>
                 <div>
-                  <TaskTable tasks={data.tasks} blocks={data.blocks} taskStatuses={data.task_statuses} />
+                  <TaskTable tasks={data.tasks} blocks={data.blocks} taskStatuses={data.task_statuses} onUpdateStatus={handleStatusUpdate} />
                 </div>
               </div>
             ) : (
