@@ -58,10 +58,16 @@ class MaintenanceTask(BaseModel):
 
 class MaintenanceTaskCreate(BaseModel):
     department: str
+    task_type: str
+    origin: str
+    severity: int
+    overdue_days: int
+    asset_criticality: int
     start_km: float
     end_km: float
     duration_mins: int
-    severity: int
+    deadline_mins: int
+    line_direction: str
 
 class PlannedBlock(BaseModel):
     id: str

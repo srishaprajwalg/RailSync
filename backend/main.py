@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from core.schemas import Station, TrainSchedule, MaintenanceTask, MaintenanceTaskCreate, PlannedBlock, GoodsTrainForecast, OptimizeRequest, OptimizationResult, OptimizationMetrics
+from core.schemas import Station, TrainSchedule, MaintenanceTask, MaintenanceTaskCreate, PlannedBlock, GoodsTrainForecast, OptimizeRequest, OptimizationResult, OptimizationMetrics, PriorityDetails
 from services.real_corridor import CORRIDOR_STATIONS, get_real_timetables
 from services.mock_data import generate_mock_tasks, generate_mock_goods_forecasts
 from services.optimizer import optimize_blocks
@@ -42,10 +42,44 @@ def get_goods_forecasts():
     """Returns the simulated goods train forecasts."""
     return goods_forecasts
 
+TASK_DEFAULTS = {
+    "Track Tamping": {"department": "TMS", "duration_mins": 120},
+    "Rail Fracture Repair": {"department": "TMS", "duration_mins": 180},
+    "Point Overhaul": {"department": "SMMS", "duration_mins": 240},
+    "Signal Failure": {"department": "SMMS", "duration_mins": 60},
+    "OHE Maintenance": {"department": "TDMS", "duration_mins": 120},
+    "Routine Inspection": {"department": "TMS", "duration_mins": 90},
+}
+
 @app.get("/api/tasks", response_model=List[MaintenanceTask])
 def get_tasks():
     """Returns the synthetic multi-department maintenance tasks."""
     return tasks
+
+@app.get("/api/tasks/defaults")
+def get_task_defaults():
+    """Returns baseline duration and department defaults for standard tasks."""
+    return TASK_DEFAULTS
+
+@app.post("/api/tasks/preview-priority", response_model=PriorityDetails)
+def preview_priority(task_in: MaintenanceTaskCreate):
+    """Preview the AI priority score without creating the task."""
+    dummy_task = MaintenanceTask(
+        id="PREVIEW",
+        department=task_in.department,
+        task_type=task_in.task_type,
+        origin=task_in.origin,
+        severity=task_in.severity,
+        overdue_days=task_in.overdue_days,
+        asset_criticality=task_in.asset_criticality,
+        start_km=task_in.start_km,
+        end_km=task_in.end_km,
+        duration_mins=task_in.duration_mins,
+        deadline_mins=task_in.deadline_mins,
+        line_direction=task_in.line_direction
+    )
+    from services.ai_prioritizer import calculate_task_priority
+    return calculate_task_priority(dummy_task, current_time_mins=0)
 
 @app.post("/api/tasks", response_model=List[MaintenanceTask])
 def add_task(task_in: MaintenanceTaskCreate):
@@ -54,16 +88,16 @@ def add_task(task_in: MaintenanceTaskCreate):
     new_task = MaintenanceTask(
         id=f"MANUAL-{uuid.uuid4().hex[:6].upper()}",
         department=task_in.department,
-        task_type="Manual Block",
-        origin="User Input",
+        task_type=task_in.task_type,
+        origin=task_in.origin,
         severity=task_in.severity,
-        overdue_days=0,
-        asset_criticality=3,
+        overdue_days=task_in.overdue_days,
+        asset_criticality=task_in.asset_criticality,
         start_km=task_in.start_km,
         end_km=task_in.end_km,
         duration_mins=task_in.duration_mins,
-        deadline_mins=1440,
-        line_direction="Both"
+        deadline_mins=task_in.deadline_mins,
+        line_direction=task_in.line_direction
     )
     new_task = prioritize_tasks([new_task], current_time_mins=0)[0]
     tasks.append(new_task)

@@ -1,17 +1,18 @@
 import { useMemo, useState } from 'react';
 import { formatTime } from '../utils/formatters';
+import { Info } from 'lucide-react';
 
 export default function CorridorTimeline({ corridor, timetables, forecasts, blocks, horizonDays = 7 }) {
   const [selectedDirection, setSelectedDirection] = useState('Up');
   
   // SVG Coordinates setup
-  const width = 800;
-  const height = 500;
-  const paddingX = 60;
-  const paddingY = 40;
+  const width = 850;
+  const height = 550;
+  const paddingX = 80;
+  const paddingY = 60;
   
-  const graphWidth = width - 2 * paddingX;
-  const graphHeight = height - 2 * paddingY;
+  const graphWidth = width - paddingX * 2;
+  const graphHeight = height - paddingY * 2;
   
   const maxChainage = Math.max(...corridor.map(c => c.chainage_km));
   const minChainage = Math.min(...corridor.map(c => c.chainage_km));
@@ -34,38 +35,59 @@ export default function CorridorTimeline({ corridor, timetables, forecasts, bloc
 
   return (
     <div className="bg-white border border-rail-border rounded-lg shadow-sm">
-      <div className="p-4 border-b border-rail-border bg-rail-bg/50 flex justify-between items-center">
+      <div className="p-4 border-b border-gray-100 bg-gray-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h3 className="text-lg font-semibold text-rail-text-dark">Time-Distance Visualization</h3>
-          <p className="text-xs text-rail-text-muted">Train movements and scheduled blocks</p>
+          <h3 className="text-lg font-bold text-gray-800">Time-Distance Visualization</h3>
+          <p className="text-xs text-gray-500 max-w-md mt-1">
+            See exactly when and where trains are moving, and where maintenance blocks have been safely scheduled between them.
+          </p>
         </div>
-        <div className="flex bg-gray-100 rounded p-1">
+        <div className="flex bg-gray-200 rounded p-1 shrink-0">
           <button 
-            className={`px-3 py-1 text-sm font-medium rounded ${selectedDirection === 'Up' ? 'bg-white shadow text-rail-blue' : 'text-gray-500 hover:text-gray-700'}`}
+            className={`px-3 py-1.5 text-xs font-semibold rounded transition-colors ${selectedDirection === 'Up' ? 'bg-white shadow text-indigo-700' : 'text-gray-600 hover:text-gray-800'}`}
             onClick={() => setSelectedDirection('Up')}
           >
-            Up Line
+            Toward Jolarpettai (Up Line)
           </button>
           <button 
-            className={`px-3 py-1 text-sm font-medium rounded ${selectedDirection === 'Down' ? 'bg-white shadow text-rail-blue' : 'text-gray-500 hover:text-gray-700'}`}
+            className={`px-3 py-1.5 text-xs font-semibold rounded transition-colors ${selectedDirection === 'Down' ? 'bg-white shadow text-fuchsia-700' : 'text-gray-600 hover:text-gray-800'}`}
             onClick={() => setSelectedDirection('Down')}
           >
-            Down Line
+            Toward Bengaluru (Down Line)
           </button>
         </div>
       </div>
       
+      {/* Visual Helper */}
+      <div className="px-5 py-3 border-b border-gray-100 flex items-start gap-2 bg-blue-50/30">
+        <Info className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+        <p className="text-[11px] text-gray-600">
+          <strong>How to read this chart:</strong> Time moves from left to right. Distance moves from top to bottom. 
+          The diagonal lines are moving trains. The orange boxes are track areas reserved for maintenance. 
+          RailVyuha ensures the orange boxes never touch the train lines.
+        </p>
+      </div>
+
       <div className="p-4 overflow-x-auto">
-        <svg width="100%" height="500" viewBox={`0 0 ${width} ${height}`} className="font-sans">
+        <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} className="font-sans">
           
+          {/* Axis Labels */}
+          <text x={width / 2} y={height - 15} fontSize="12" fontWeight="bold" fill="#4B5563" textAnchor="middle">
+            Time (left to right) →
+          </text>
+          
+          <text x="15" y={height / 2} fontSize="12" fontWeight="bold" fill="#4B5563" textAnchor="middle" transform={`rotate(-90 15 ${height/2})`}>
+            Distance / Stations →
+          </text>
+
           {/* X Axis Grid (Time) */}
           {intervals.map((mins) => {
             const isMajor = horizonDays === 1 ? mins % 120 === 0 : true;
             return (
               <g key={mins}>
-                <line x1={getX(mins)} y1={paddingY} x2={getX(mins)} y2={height - paddingY} stroke="#E2E8F0" strokeWidth="1" strokeDasharray="4,4" />
+                <line x1={getX(mins)} y1={paddingY} x2={getX(mins)} y2={height - paddingY} stroke="#f1f5f9" strokeWidth="1" strokeDasharray="4,4" />
                 {isMajor && (
-                  <text x={getX(mins)} y={height - paddingY + 20} fontSize="10" fill="#64748B" textAnchor="middle">
+                  <text x={getX(mins)} y={height - paddingY + 20} fontSize="10" fill="#64748B" textAnchor="middle" fontWeight="500">
                     {horizonDays === 1 ? formatTime(mins, false) : `Day ${(mins/1440)+1}`}
                   </text>
                 )}
@@ -76,32 +98,20 @@ export default function CorridorTimeline({ corridor, timetables, forecasts, bloc
           {/* Y Axis Grid (Stations) */}
           {corridor.map((station) => (
             <g key={station.id}>
-              <line x1={paddingX} y1={getY(station.chainage_km)} x2={width - paddingX} y2={getY(station.chainage_km)} stroke="#E2E8F0" strokeWidth="1" />
-              <text x={paddingX - 10} y={getY(station.chainage_km) + 3} fontSize="10" fill="#17202A" textAnchor="end" fontWeight="500">
-                {station.id}
+              <line x1={paddingX} y1={getY(station.chainage_km)} x2={width - paddingX} y2={getY(station.chainage_km)} stroke="#e2e8f0" strokeWidth="1" />
+              <text x={paddingX - 10} y={getY(station.chainage_km) + 3} fontSize="10" fill="#475569" textAnchor="end" fontWeight="600">
+                {station.name}
+              </text>
+              <text x={paddingX - 10} y={getY(station.chainage_km) + 14} fontSize="8" fill="#94a3b8" textAnchor="end">
+                Km {station.chainage_km.toFixed(0)}
               </text>
             </g>
           ))}
 
-          {/* Train Paths */}
-          {filteredSchedules.map((train, i) => {
-            const points = train.stops.map(stop => {
-              const station = corridor.find(c => c.id === stop.station_id);
-              if (!station) return '';
-              // Approximating continuous movement between arrival and departure
-              // For a time-distance graph, we usually just connect arrival/departure points.
-              return `${getX(stop.arrival_mins)},${getY(station.chainage_km)} ${getX(stop.departure_mins)},${getY(station.chainage_km)}`;
-            }).join(' ');
-            
-            return (
-              <polyline key={train.train_id} points={points} fill="none" stroke="#0B3A5B" strokeWidth="1.5" opacity="0.6" />
-            );
-          })}
-
           {/* Goods Train Forecast Windows */}
           {filteredForecasts.map((forecast) => {
             const x1 = getX(forecast.earliest_entry_mins);
-            const w = getX(forecast.latest_exit_mins) - x1;
+            const w = Math.max(getX(forecast.latest_exit_mins) - x1, 2);
             const y1 = getY(forecast.start_km);
             const h = getY(forecast.end_km) - y1;
             
@@ -109,48 +119,64 @@ export default function CorridorTimeline({ corridor, timetables, forecasts, bloc
             const rectH = Math.abs(h);
             
             return (
-              <rect 
-                key={forecast.forecast_id}
-                x={x1} 
-                y={rectY} 
-                width={w} 
-                height={rectH || 5}
-                fill="#94A3B8" 
-                fillOpacity="0.2" 
-                stroke="#94A3B8" 
-                strokeWidth="1"
-                strokeDasharray="4,4"
-              />
+              <g key={forecast.forecast_id}>
+                <title>Freight Train Window: Reserved space for goods train between Km {forecast.start_km} and {forecast.end_km}.</title>
+                <rect 
+                  x={x1} 
+                  y={rectY} 
+                  width={w} 
+                  height={rectH || 4}
+                  fill="#94a3b8" 
+                  fillOpacity="0.15" 
+                  stroke="#cbd5e1" 
+                  strokeWidth="1"
+                  strokeDasharray="2,2"
+                />
+              </g>
+            );
+          })}
+
+          {/* Train Paths */}
+          {filteredSchedules.map((train) => {
+            const points = train.stops.map(stop => {
+              const station = corridor.find(c => c.id === stop.station_id);
+              if (!station) return '';
+              return `${getX(stop.arrival_mins)},${getY(station.chainage_km)} ${getX(stop.departure_mins)},${getY(station.chainage_km)}`;
+            }).join(' ');
+            
+            return (
+              <g key={train.train_id}>
+                <title>Passenger Train: {train.type} traveling {train.direction === 'Up' ? 'Toward Jolarpettai' : 'Toward Bengaluru'}.</title>
+                <polyline points={points} fill="none" stroke="#0f172a" strokeWidth="1.5" opacity="0.6" />
+              </g>
             );
           })}
 
           {/* Maintenance Blocks */}
           {filteredBlocks.map((block) => {
             const x1 = getX(block.start_time_mins);
-            const w = getX(block.end_time_mins) - x1;
+            const w = Math.max(getX(block.end_time_mins) - x1, 2);
             const y1 = getY(block.start_km);
             const h = getY(block.end_km) - y1;
             
-            // h could be negative if Down line (higher km to lower km), handle standard rect coordinates
             const rectY = Math.min(y1, y1 + h);
             const rectH = Math.abs(h);
+            const isPointTask = rectH < 5;
             
             return (
               <g key={block.id}>
+                <title>Maintenance Block: Safe window reserved from {formatTime(block.start_time_mins)} to {formatTime(block.end_time_mins)} between Km {block.start_km.toFixed(1)} and {block.end_km.toFixed(1)}.</title>
                 <rect 
                   x={x1} 
-                  y={rectY} 
+                  y={isPointTask ? rectY - 3 : rectY} 
                   width={w} 
-                  height={rectH || 5} // If it's a point task, give it 5px height
-                  fill="#F28C28" 
-                  fillOpacity="0.7" 
-                  stroke="#D97706" 
+                  height={isPointTask ? 6 : rectH}
+                  fill="#f97316" 
+                  fillOpacity="0.8" 
+                  stroke="#c2410c" 
                   strokeWidth="1"
-                  rx="2"
+                  rx="1"
                 />
-                <text x={x1 + w/2} y={rectY + rectH/2 + 3} fontSize="9" fill="white" textAnchor="middle" fontWeight="bold">
-                  {block.assigned_tasks.length > 1 ? 'CONS' : 'BLK'}
-                </text>
               </g>
             );
           })}
@@ -158,18 +184,18 @@ export default function CorridorTimeline({ corridor, timetables, forecasts, bloc
         </svg>
         
         {/* Legend */}
-        <div className="flex justify-center gap-6 mt-2 text-xs text-rail-text-muted">
+        <div className="flex justify-center gap-6 mt-2 pb-2 text-xs text-gray-600 font-medium bg-white">
           <div className="flex items-center gap-2">
-            <span className="w-4 h-0.5 bg-rail-blue inline-block"></span> Train Movement
+            <span className="w-6 h-0.5 bg-[#0f172a] inline-block opacity-60"></span> 
+            <span>Passenger Train</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-3 h-3 bg-slate-400/20 border border-slate-400 border-dashed inline-block"></span> Freight Window
+            <span className="w-4 h-4 bg-[#94a3b8] opacity-20 border border-slate-300 border-dashed inline-block"></span> 
+            <span>Freight Train Window</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-3 h-3 bg-rail-saffron/70 border border-rail-warning rounded-sm inline-block"></span> Maintenance Block
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="w-3 h-3 border border-rail-border rounded-sm inline-block"></span> Station Line
+            <span className="w-4 h-4 bg-orange-500 opacity-80 border border-orange-700 rounded-sm inline-block"></span> 
+            <span>Maintenance Block</span>
           </div>
         </div>
       </div>

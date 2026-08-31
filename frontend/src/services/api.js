@@ -49,3 +49,21 @@ export const addTask = async (taskData) => {
   if (!response.ok) throw new Error('Failed to add task');
   return response.json();
 };
+
+export const previewPriority = async (taskData) => {
+  const response = await fetch(`${API_BASE_URL}/tasks/preview-priority`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(taskData),
+  });
+  if (!response.ok) throw new Error('Failed to preview priority');
+  return response.json();
+};
+
+export const fetchTaskDefaults = async () => {
+  const response = await fetch(`${API_BASE_URL}/tasks/defaults`);
+  if (!response.ok) throw new Error('Failed to fetch task defaults');
+  return response.json();
+};

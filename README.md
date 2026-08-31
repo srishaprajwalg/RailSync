@@ -54,20 +54,25 @@ The prototype is currently implemented with the following stack and components:
   - Only adjacent/overlapping compatible tasks are consolidated into shared block windows.
 
 ### Frontend (React/Vite)
-- **Dashboard**: A React-based interface utilizing Tailwind CSS v4, featuring a **Horizon Selector** (Daily/Weekly/Monthly) to drive the planning engine.
-- **KPICards**: Displays real-time API-driven metrics tracking Task Processing (Planned/Deferred/Infeasible breakdowns), High-Priority handling, and verifiable Downtime Reduction.
-- **CorridorTimeline**: A custom SVG Time-Distance graph that dynamically scales its grid and visually renders passenger train movements, maintenance blocks, and **freight train forecast uncertainty windows** across 1, 7, or 30-day horizons.
-- **BlockPlan**: Lists the generated, consolidated multi-department blocks formatted relative to their horizon day (e.g., `Day 2 — 08:30`), complete with human-readable consolidation explanations.
-- **TaskTable**: A comprehensive view of all incoming maintenance requests, displaying detailed AI priority logic explanations and explicitly translated execution statuses ("Feasible, but capacity allocated to higher-priority tasks" instead of just "Deferred").
+- **Dashboard**: A React-based interface utilizing Tailwind CSS v4, featuring a 3-tab layout (Data & Setup, Control Room, Action Plan) and a **Horizon Selector** (Daily/Weekly/Monthly) to drive the planning engine.
+- **Manual Maintenance Entry**: Users enter operational facts (activity type, defect vs routine, severity, asset criticality, location, overdue days, deadline) rather than arbitrary technical scores.
+  - Duration defaults are populated based on the activity but are explicitly prototype estimates and not official Indian Railways standards; users can override them.
+  - The form provides a live **Priority Preview**, fetching the exact score from the backend prioritization engine before submission.
+- **KPICards**: Displays real-time API-driven metrics using plain-language operational terms (e.g., "Critical Safety Tasks", "Track Uptime Saved").
+- **CorridorTimeline**: A custom SVG Time-Distance graph that explicitly labels Time (X) and Distance/Stations (Y). Train directions are explained in plain language ("Toward Jolarpettai"). It features a clean legend, "How to read this chart" guidance, and HTML tooltips providing human-readable context for train movements and maintenance blocks.
+- **BlockPlan**: Lists the generated, consolidated multi-department blocks formatted with human-readable explanations detailing why specific tasks were grouped and verifying their safety.
+- **TaskTable**: A comprehensive view of all incoming maintenance requests, displaying priority badges, AI explanations, and explicitly translated execution statuses instead of technical jargon.
 
 ## 3. End-to-End Workflow
 
-1. The frontend fetches the corridor definitions (real stations), scheduled passenger timetables (real schedules), goods train forecasts (synthetic), and maintenance tasks (synthetic, prioritized by the AI engine).
-2. The user selects a planning horizon (1, 7, or 30 days) and clicks "Generate Optimal Plan".
-3. The frontend calls `POST /api/optimize` with the `horizon_days` payload.
-4. The CP-SAT engine calculates exact spatiotemporal train overlaps, verifies standalone task feasibility, applies compatibility rules, and optimizes according to the lexicographic hierarchy.
-5. The API returns the optimized blocks, detailed performance metrics, and a `task_statuses` mapping.
-6. The dashboard updates to visualize the scaled Time-Distance graph, accurate KPIs, and detailed task execution states.
+The platform strictly enforces the separation of business logic (backend) from presentation (frontend):
+
+1. **User Input**: The user enters operational facts (activity type, severity, location, etc.) into the dashboard, optionally adjusting backend-provided duration defaults.
+2. **Backend Validation & Priority**: The frontend requests a priority preview. The backend securely validates the schema and runs the AI prioritization engine.
+3. **Data Aggregation**: The frontend fetches the corridor definitions, passenger timetables, goods forecasts, and the prioritized maintenance task pool.
+4. **Optimization**: The user selects a planning horizon (1, 7, or 30 days) and triggers the optimizer (`POST /api/optimize`).
+5. **CP-SAT Processing**: The CP-SAT engine calculates exact spatiotemporal train overlaps, applies compatibility rules, and optimizes block schedules according to a lexicographic hierarchy.
+6. **Human-Readable Dashboard**: The API returns the optimized blocks and metrics. The frontend visualizes the results on a human-friendly scaled Time-Distance graph and plain-language action plans.
 
 ## 4. API Endpoints
 
@@ -75,20 +80,33 @@ The prototype is currently implemented with the following stack and components:
 - `GET /api/timetables`: Returns passenger train schedules (derived from real data).
 - `GET /api/goods_forecasts`: Returns synthetic goods train forecast windows.
 - `GET /api/tasks`: Returns synthetic multi-department tasks with explicit priority logic.
+- `GET /api/tasks/defaults`: Returns backend-owned duration and department defaults for standard activities.
+- `POST /api/tasks/preview-priority`: Accepts a theoretical task and returns the exact AI priority score and reasoning without persisting the task to the pool.
 - `POST /api/optimize`: Accepts `{ "horizon_days": int }`. Runs the CP-SAT optimizer and returns `{ blocks, metrics, task_statuses }`.
 
 ## 5. Testing & Validation Results
 
-The CP-SAT constraint model and the block grouping logic have been rigorously tested against explicit operational test scenarios. Targeted optimizer and grouping tests now exist in `backend/tests/test_optimizer.py`.
+The application logic is rigorously tested through local automated suites, utilizing a dedicated `backend/requirements-dev.txt` to separate testing dependencies (`pytest`, `httpx`) from production runtime.
 
-These tests specifically cover:
+**Current Test Results:**
+- **Backend**: 11 tests passed, 0 failed.
+- **Frontend**: `npm run build` verified successfully.
+
+### Optimizer Tests (`backend/tests/test_optimizer.py`)
+These tests specifically cover the CP-SAT engine and spatial consolidation:
 - **Spatial separation**: Spatially distant tasks at the same time produce separate blocks.
 - **Direction compatibility**: Up/Down tasks are strictly isolated.
 - **Compatible grouping**: Tasks overlapping in both time and space successfully consolidate.
 - **Spatial extent verification**: Consolidated blocks accurately reflect the min/max chainage of their tasks.
 - **Deadline behavior**: Tasks exceeding deadlines are correctly rejected as infeasible.
 
-> **Note on Test Execution:** The testing suite is written in a standard pytest-compatible structure. However, because `pytest` is not installed in the prototype environment, these test functions were manually exercised and successfully validated via a standalone runner during development. We make no claim that an automated CI `pytest` suite is currently passing.
+### API & Workflow Tests (`backend/tests/test_api.py`)
+These tests verify that the REST interface preserves business logic integrity:
+- **Task Defaults**: Ensures backend successfully serves centralized duration defaults.
+- **Valid Priority Preview**: Verifies calculation of scores, categories, and explanations for theoretical inputs.
+- **Validation**: Enforces proper handling and rejection of missing/invalid task data.
+- **Preview Consistency**: Confirms that submitting a theoretical task for preview yields the *exact same* priority score as persisting it to the engine, validating that there is no duplicated scoring logic.
+- **Dynamic Prioritization**: Verifies that priority correctly changes when inputs (like severity or criticality) shift.
 
 ## 6. Limitations & Assumptions
 
@@ -100,6 +118,8 @@ The current system relies on the following operational abstractions and limitati
 - Resource constraints (e.g., track machines, manpower availability) are not yet implemented.
 - Station/block-section possession logic (closing full sections between stations) is not yet modeled; blocks strictly use task min/max km.
 - Complex topology (loop lines, yard logic, crossovers) is not yet modeled; everything assumes strict Up or Down linear chainage.
+- Duration estimates provided by the API are explicitly prototype defaults and do not represent official Indian Railways standard times.
+- Railway operational rules are simplified for the scope of this prototype.
 - No real integrations with TMS, SMMS, or TDMS exist yet.
 
 ## 7. Setup and Run Instructions
