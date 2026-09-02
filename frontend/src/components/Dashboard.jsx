@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { fetchCorridor, fetchTimetables, fetchTasks, fetchGoodsForecasts, optimizeBlocks, updateTaskStatus } from '../services/api';
 import KPICards from './KPICards';
 import BlockPlan from './BlockPlan';
@@ -6,12 +6,16 @@ import CorridorTimeline from './CorridorTimeline';
 import TaskTable from './TaskTable';
 import TaskForm from './TaskForm';
 import AnalyticsDashboard from './AnalyticsDashboard';
-import { Train, Activity, AlertTriangle, Settings, Sliders, LayoutList, TrendingUp } from 'lucide-react';
+import SimpleGanttView from './SimpleGanttView';
+import { Train, Activity, AlertTriangle, Settings, Sliders, LayoutList, TrendingUp, CalendarDays, BarChart2 } from 'lucide-react';
 
 export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [optimizing, setOptimizing] = useState(false);
-  const [horizon, setHorizon] = useState(7);
+  const [viewMode, setViewMode] = useState('Month'); // Month, Week, Day
+  const [selectedWeek, setSelectedWeek] = useState(1);
+  const [selectedDay, setSelectedDay] = useState(1);
+  const [viewType, setViewType] = useState('technical'); // technical, simple
   const [data, setData] = useState({
     corridor: [],
     timetables: [],
@@ -48,11 +52,11 @@ export default function Dashboard() {
   const handleOptimize = async () => {
     try {
       setOptimizing(true);
-      const result = await optimizeBlocks(horizon);
+      const result = await optimizeBlocks(30); // Hardcoded to 30 days backend optimization
       setData(prev => ({
         ...prev,
         blocks: result.blocks,
-        metrics: result.metrics,
+        metrics: result.metrics, // baseline from backend
         task_statuses: result.task_statuses || {},
       }));
       setOptimizing(false);
@@ -61,6 +65,73 @@ export default function Dashboard() {
       setOptimizing(false);
     }
   };
+
+  // Compute time window
+  const getWindowMins = () => {
+    if (viewMode === 'Month') return { start: 0, end: 30 * 1440 };
+    if (viewMode === 'Week') return { start: (selectedWeek - 1) * 7 * 1440, end: selectedWeek * 7 * 1440 };
+    if (viewMode === 'Day') return { start: (selectedDay - 1) * 1440, end: selectedDay * 1440 };
+    return { start: 0, end: 30 * 1440 };
+  };
+  const timeWindow = getWindowMins();
+
+  // Filter items
+  const filterByTimeWindow = (items, type) => {
+    if (!items) return [];
+    return items.filter(item => {
+      let itemStart, itemEnd;
+      if (type === 'block') {
+         itemStart = item.start_time_mins;
+         itemEnd = item.end_time_mins;
+      } else if (type === 'timetable') {
+         if (!item.stops || item.stops.length === 0) return false;
+         itemStart = item.stops[0].arrival_mins;
+         itemEnd = item.stops[item.stops.length - 1].departure_mins;
+      } else if (type === 'forecast') {
+         itemStart = item.earliest_entry_mins;
+         itemEnd = item.latest_exit_mins;
+      }
+      return itemStart < timeWindow.end && itemEnd > timeWindow.start;
+    });
+  };
+
+  const filteredBlocks = filterByTimeWindow(data.blocks, 'block');
+  const filteredTimetables = filterByTimeWindow(data.timetables, 'timetable');
+  const filteredForecasts = filterByTimeWindow(data.forecasts, 'forecast');
+
+  // Dynamically calculate metrics based on filtered blocks
+  const dynamicMetrics = useMemo(() => {
+    if (!data.metrics) return null;
+    const blocks_created = filteredBlocks.length;
+    let total_block_minutes = 0;
+    const windowTasks = new Set();
+    
+    filteredBlocks.forEach(b => {
+      total_block_minutes += (b.end_time_mins - b.start_time_mins);
+      b.assigned_tasks.forEach(t => windowTasks.add(t));
+    });
+    
+    const planned_tasks = windowTasks.size;
+    let total_requested_mins = 0;
+    
+    windowTasks.forEach(tId => {
+      const t = data.tasks.find(tsk => tsk.id === tId);
+      if (t) total_requested_mins += t.duration_mins;
+    });
+    
+    let downtime_reduction_pct = 0;
+    if (total_requested_mins > 0) {
+      downtime_reduction_pct = ((total_requested_mins - total_block_minutes) / total_requested_mins) * 100;
+    }
+    
+    return {
+      ...data.metrics,
+      planned_tasks,
+      blocks_created,
+      total_block_minutes,
+      downtime_reduction_pct,
+    };
+  }, [filteredBlocks, data.metrics, data.tasks]);
   
   const handleStatusUpdate = async (taskId, newStatus) => {
     try {
@@ -164,9 +235,9 @@ export default function Dashboard() {
             </div>
             <AnalyticsDashboard 
               tasks={data.tasks} 
-              blocks={data.blocks} 
+              blocks={filteredBlocks} 
               taskStatuses={data.task_statuses} 
-              metrics={data.metrics}
+              metrics={dynamicMetrics}
               corridor={data.corridor}
             />
           </div>
@@ -178,10 +249,10 @@ export default function Dashboard() {
               <h2 className="text-2xl font-bold text-rail-text-dark mb-1">Data & Setup</h2>
               <p className="text-rail-text-muted text-sm mb-4">Manage maintenance requests and view key performance indicators.</p>
             </div>
-            {data.metrics && <KPICards metrics={data.metrics} />}
+            {dynamicMetrics && <KPICards metrics={dynamicMetrics} />}
             <TaskForm onTaskAdded={(updatedTasks) => setData((prev) => ({ ...prev, tasks: updatedTasks }))} />
             <div className="mt-8">
-              <TaskTable tasks={data.tasks} blocks={data.blocks} taskStatuses={data.task_statuses} onUpdateStatus={handleStatusUpdate} />
+              <TaskTable tasks={data.tasks} blocks={filteredBlocks} taskStatuses={data.task_statuses} onUpdateStatus={handleStatusUpdate} />
             </div>
           </div>
         )}
@@ -193,31 +264,72 @@ export default function Dashboard() {
                 <h2 className="text-2xl font-bold text-rail-text-dark">Control Room</h2>
                 <p className="text-rail-text-muted text-sm">Coordinate multi-department requests with CP-SAT constraints.</p>
               </div>
-              <div className="flex items-center gap-4">
-                <select
-                  value={horizon}
-                  onChange={(e) => setHorizon(Number(e.target.value))}
-                  disabled={optimizing}
-                  className="px-4 py-2.5 border border-rail-border rounded shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-rail-blue/50"
-                >
-                  <option value={1}>Daily (1 Day)</option>
-                  <option value={7}>Weekly (7 Days)</option>
-                  <option value={30}>Monthly (30 Days)</option>
-                </select>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                <div className="flex items-center gap-2 bg-white rounded shadow-sm border border-rail-border p-1">
+                  <button onClick={() => setViewMode('Month')} className={`px-3 py-1.5 text-xs font-semibold rounded ${viewMode === 'Month' ? 'bg-rail-blue text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Month</button>
+                  <button onClick={() => setViewMode('Week')} className={`px-3 py-1.5 text-xs font-semibold rounded ${viewMode === 'Week' ? 'bg-rail-blue text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Week</button>
+                  <button onClick={() => setViewMode('Day')} className={`px-3 py-1.5 text-xs font-semibold rounded ${viewMode === 'Day' ? 'bg-rail-blue text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Day</button>
+                </div>
+
+                {viewMode === 'Week' && (
+                  <select
+                    value={selectedWeek}
+                    onChange={(e) => setSelectedWeek(Number(e.target.value))}
+                    className="px-3 py-1.5 border border-rail-border rounded shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-rail-blue/50"
+                  >
+                    {[1, 2, 3, 4, 5].map(w => <option key={w} value={w}>Week {w}</option>)}
+                  </select>
+                )}
+
+                {viewMode === 'Day' && (
+                  <select
+                    value={selectedDay}
+                    onChange={(e) => setSelectedDay(Number(e.target.value))}
+                    className="px-3 py-1.5 border border-rail-border rounded shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-rail-blue/50"
+                  >
+                    {Array.from({ length: 30 }, (_, i) => i + 1).map(d => <option key={d} value={d}>Day {d}</option>)}
+                  </select>
+                )}
+
                 <button 
                   onClick={handleOptimize}
                   disabled={optimizing}
-                  className={`px-6 py-2.5 rounded shadow-sm text-white font-medium flex items-center gap-2 transition-colors ${
+                  className={`px-6 py-2 rounded shadow-sm text-white font-medium flex items-center gap-2 transition-colors ${
                     optimizing ? 'bg-rail-blue/70 cursor-not-allowed' : 'bg-rail-blue hover:bg-rail-blue/90'
                   }`}
                 >
                   <Activity className="w-4 h-4" />
-                  {optimizing ? 'Running CP-SAT Solver...' : 'Generate Optimal Plan'}
+                  {optimizing ? 'Running CP-SAT Solver...' : 'Generate 30-Day Optimal Plan'}
                 </button>
               </div>
             </div>
+
+            {/* View Type Toggle */}
+            {data.blocks.length > 0 && (
+              <div className="flex justify-end mb-4">
+                <div className="flex bg-gray-200 rounded p-1">
+                  <button 
+                    className={`flex items-center gap-2 px-4 py-1.5 text-xs font-semibold rounded transition-colors ${viewType === 'simple' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
+                    onClick={() => setViewType('simple')}
+                  >
+                    <CalendarDays className="w-4 h-4" /> Simple View
+                  </button>
+                  <button 
+                    className={`flex items-center gap-2 px-4 py-1.5 text-xs font-semibold rounded transition-colors ${viewType === 'technical' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
+                    onClick={() => setViewType('technical')}
+                  >
+                    <BarChart2 className="w-4 h-4" /> Technical View
+                  </button>
+                </div>
+              </div>
+            )}
+
             {data.blocks.length > 0 ? (
-              <CorridorTimeline corridor={data.corridor} timetables={data.timetables} forecasts={data.forecasts} blocks={data.blocks} horizonDays={horizon} />
+              viewType === 'technical' ? (
+                <CorridorTimeline corridor={data.corridor} timetables={filteredTimetables} forecasts={filteredForecasts} blocks={filteredBlocks} timeWindow={timeWindow} />
+              ) : (
+                <SimpleGanttView corridor={data.corridor} timetables={filteredTimetables} forecasts={filteredForecasts} blocks={filteredBlocks} timeWindow={timeWindow} />
+              )
             ) : (
               <div className="bg-white p-10 rounded-lg shadow-sm border border-rail-border text-center text-gray-500">
                 Run the CP-SAT solver to view the corridor timeline.
@@ -235,10 +347,10 @@ export default function Dashboard() {
             {data.blocks.length > 0 ? (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div>
-                  <BlockPlan blocks={data.blocks} tasks={data.tasks} />
+                  <BlockPlan blocks={filteredBlocks} tasks={data.tasks} />
                 </div>
                 <div>
-                  <TaskTable tasks={data.tasks} blocks={data.blocks} taskStatuses={data.task_statuses} onUpdateStatus={handleStatusUpdate} />
+                  <TaskTable tasks={data.tasks} blocks={filteredBlocks} taskStatuses={data.task_statuses} onUpdateStatus={handleStatusUpdate} />
                 </div>
               </div>
             ) : (

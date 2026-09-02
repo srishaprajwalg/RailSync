@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { formatTime } from '../utils/formatters';
 import { Info } from 'lucide-react';
 
-export default function CorridorTimeline({ corridor, timetables, forecasts, blocks, horizonDays = 7 }) {
+export default function CorridorTimeline({ corridor, timetables, forecasts, blocks, timeWindow }) {
   const [selectedDirection, setSelectedDirection] = useState('Up');
   
   // SVG Coordinates setup
@@ -17,19 +17,32 @@ export default function CorridorTimeline({ corridor, timetables, forecasts, bloc
   const maxChainage = Math.max(...corridor.map(c => c.chainage_km));
   const minChainage = Math.min(...corridor.map(c => c.chainage_km));
   
-  const maxTime = horizonDays * 1440;
+  const windowDuration = timeWindow.end - timeWindow.start;
   const getY = (km) => paddingY + ((km - minChainage) / (maxChainage - minChainage)) * graphHeight;
-  const getX = (mins) => paddingX + (mins / maxTime) * graphWidth;
+  const getX = (mins) => {
+    // If the event starts before window but ends inside, or vice versa, still plot based on actual time
+    return paddingX + ((mins - timeWindow.start) / windowDuration) * graphWidth;
+  };
   
   const filteredSchedules = useMemo(() => timetables.filter(t => t.direction === selectedDirection), [timetables, selectedDirection]);
   const filteredForecasts = useMemo(() => forecasts?.filter(f => f.direction === selectedDirection) || [], [forecasts, selectedDirection]);
   const filteredBlocks = useMemo(() => blocks.filter(b => b.line_direction === selectedDirection), [blocks, selectedDirection]);
 
-  // Intervals for grid based on horizon
+  // Intervals for grid based on window duration
   const getGridIntervals = () => {
-    if (horizonDays === 1) return Array.from({length: 25}, (_, i) => i * 60); // Every hour
-    if (horizonDays === 7) return Array.from({length: 8}, (_, i) => i * 1440); // Every day
-    return Array.from({length: 31}, (_, i) => i * 1440); // Every day for 30 days
+    if (windowDuration <= 1440) {
+      // Daily view: every hour
+      const count = 25;
+      return Array.from({length: count}, (_, i) => timeWindow.start + (i * 60));
+    } else if (windowDuration <= 7 * 1440) {
+      // Weekly view: every day
+      const count = 8;
+      return Array.from({length: count}, (_, i) => timeWindow.start + (i * 1440));
+    } else {
+      // Monthly view: every day
+      const count = 31;
+      return Array.from({length: count}, (_, i) => timeWindow.start + (i * 1440));
+    }
   };
   const intervals = getGridIntervals();
 
@@ -82,13 +95,13 @@ export default function CorridorTimeline({ corridor, timetables, forecasts, bloc
 
           {/* X Axis Grid (Time) */}
           {intervals.map((mins) => {
-            const isMajor = horizonDays === 1 ? mins % 120 === 0 : true;
+            const isMajor = windowDuration <= 1440 ? mins % 120 === 0 : true;
             return (
               <g key={mins}>
                 <line x1={getX(mins)} y1={paddingY} x2={getX(mins)} y2={height - paddingY} stroke="#f1f5f9" strokeWidth="1" strokeDasharray="4,4" />
                 {isMajor && (
                   <text x={getX(mins)} y={height - paddingY + 20} fontSize="10" fill="#64748B" textAnchor="middle" fontWeight="500">
-                    {horizonDays === 1 ? formatTime(mins, false) : `Day ${(mins/1440)+1}`}
+                    {windowDuration <= 1440 ? formatTime(mins, false) : `Day ${Math.floor(mins/1440)+1}`}
                   </text>
                 )}
               </g>

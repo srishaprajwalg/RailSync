@@ -13,7 +13,7 @@ MOCK_STATIONS = [
     Station(id="JTJ", code="JTJ", name="Jolarpettai", chainage_km=145.2)
 ]
 
-HORIZON_DAYS = 7
+HORIZON_DAYS = 30
 MINS_PER_DAY = 1440
 
 def generate_mock_timetables() -> List[TrainSchedule]:
@@ -132,14 +132,14 @@ def generate_mock_tasks() -> List[MaintenanceTask]:
     origins = ["Defect", "Routine Maintenance"]
     
     def get_deadline():
-        # Mix of extremely tight (infeasible), same-day, and weekly deadlines
+        # Mix of extremely tight (infeasible), same-day, weekly, and monthly deadlines
         return random.choices(
-            [random.randint(60, 300), random.randint(720, 1440), random.randint(1440, 7*1440)],
-            weights=[10, 40, 50]
+            [random.randint(60, 300), random.randint(720, 1440), random.randint(1440, 7*1440), random.randint(7*1440, 30*1440)],
+            weights=[5, 20, 35, 40]
         )[0]
     
     # TMS (Engineering)
-    for i in range(35):
+    for i in range(150):
         start_km = random.randint(10, 130)
         origin = random.choices(origins, weights=[30, 70])[0]
         severity = random.randint(3, 5) if origin == "Defect" else random.randint(1, 3)
@@ -161,7 +161,7 @@ def generate_mock_tasks() -> List[MaintenanceTask]:
         ))
         
     # TDMS (Traction)
-    for i in range(30):
+    for i in range(120):
         start_km = random.randint(10, 130)
         origin = random.choices(origins, weights=[20, 80])[0]
         severity = random.randint(3, 5) if origin == "Defect" else random.randint(1, 3)
@@ -183,7 +183,7 @@ def generate_mock_tasks() -> List[MaintenanceTask]:
         ))
         
     # SMMS (Signalling)
-    for i in range(35):
+    for i in range(150):
         station = random.choice(MOCK_STATIONS[1:-1])
         origin = random.choices(origins, weights=[40, 60])[0]
         severity = random.randint(4, 5) if origin == "Defect" else random.randint(1, 4)

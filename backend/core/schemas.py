@@ -82,7 +82,7 @@ class PlannedBlock(BaseModel):
     assigned_tasks: List[str]  # Task IDs
 
 class OptimizeRequest(BaseModel):
-    horizon_days: int = Field(7, ge=1, le=30, description="Planning horizon in days (1 to 30)")
+    horizon_days: int = Field(30, ge=1, le=30, description="Planning horizon in days (1 to 30)")
 
 class OptimizationMetrics(BaseModel):
     total_tasks: int
