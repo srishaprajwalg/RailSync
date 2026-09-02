@@ -345,13 +345,8 @@ export default function Dashboard() {
               <p className="text-rail-text-muted text-sm mb-4">Detailed view of the generated blocks and task assignments.</p>
             </div>
             {data.blocks.length > 0 ? (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div>
-                  <BlockPlan blocks={filteredBlocks} tasks={data.tasks} />
-                </div>
-                <div>
-                  <TaskTable tasks={data.tasks} blocks={filteredBlocks} taskStatuses={data.task_statuses} onUpdateStatus={handleStatusUpdate} />
-                </div>
+              <div className="w-full">
+                <BlockPlan blocks={filteredBlocks} tasks={data.tasks} timeWindow={timeWindow} />
               </div>
             ) : (
               <div className="bg-white p-10 rounded-lg shadow-sm border border-rail-border text-center text-gray-500">
