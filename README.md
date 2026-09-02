@@ -48,7 +48,7 @@ The dashboard supports **Month**, **Week**, and **Day** planning views. These vi
 The application logic is rigorously tested through local automated suites, utilizing a dedicated `backend/requirements-dev.txt`.
 
 **Current Verification Status:**
-- **Backend test suite**: 25 tests passing. (Run via `cd backend && source venv/bin/activate && PYTHONPATH=. pytest tests/`)
+- **Backend test suite**: 28 tests passing. (Run via `cd backend && source venv/bin/activate && PYTHONPATH=. pytest tests/`)
 - **Frontend production build**: Passing successfully. (Run via `cd frontend && npm run build`)
 
 ## 4. Important Prototype Limitations
@@ -62,7 +62,23 @@ The application logic is rigorously tested through local automated suites, utili
 - Multi-corridor support is NOT currently implemented.
 - External AI/LLM integration is NOT present in the scheduling logic.
 
-## 5. Setup and Run Instructions
+## 5. Next Development Roadmap
+
+The following features are planned for future development but are **NOT CURRENTLY IMPLEMENTED** in this prototype version:
+
+- **Cloud Database**: Integration of a persistent database for historical maintenance data.
+- **Genuine ML Layer**: Machine learning for maintenance recurrence/failure-risk prediction, including possible duration and operational-impact prediction.
+- **ML-Driven Prioritization**: ML predictions feeding into the explainable priority assessment (while CP-SAT remains the final rigid scheduling/constraint engine).
+- **Train Categories**: Advanced modelling of train categories and operational impact.
+- **ML Feedback Loop**: Tracking planned-vs-actual maintenance outcomes to feed an ML evaluation loop.
+- **Department-wise Coordination**: Specialized views and coordination tooling for Engineering, S&T, and Traction departments.
+- **Spatial Queries**: Nearby-track/location queries (e.g., finding all maintenance required within X km of a specific chainage).
+- **Multi-Corridor Support**: Expanding the optimization engine and UI to handle multiple corridors simultaneously.
+- **Real Data Ingestion**: Connecting to real railway APIs for live timetable and maintenance data ingestion.
+- **Scenario Analysis**: "What-if" scheduling and hypothetical scenario testing.
+- **Judge-Demo Flow**: Final end-to-end testing, robustness improvements, and demo polishing.
+
+## 6. Setup and Run Instructions
 
 ### Backend Setup
 

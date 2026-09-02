@@ -141,15 +141,16 @@ def optimize_blocks(
             demands = [1 for _ in res_tasks]
             model.AddCumulative(res_intervals, demands, capacity)
 
-    # 5. Objective function: Lexicographic Hierarchy
-    W_SCHEDULE = 1_000_000_000
-    W_PRIORITY = 1_000_000
-    W_EARLY = 10
+    # 5. Objective function: Strict global hierarchy (Priority > Coverage > Earliness)
+    # Conservative verified bound for current prototype: N_MAX <= 1,000 tasks, MAX_START <= 43,200 (30 days)
+    W_PRIORITY = 1_000_000_000_000  # 1 Trillion
+    W_BASE = 100_000_000            # 100 Million
+    W_EARLY = 1                     # 1
     
     objective_terms = []
     for task in active_tasks:
         score = task.priority_details.score if hasattr(task, 'priority_details') and task.priority_details else 10
-        reward_schedule = task_is_scheduled[task.id] * W_SCHEDULE
+        reward_schedule = task_is_scheduled[task.id] * W_BASE
         reward_priority = task_is_scheduled[task.id] * (score * W_PRIORITY)
         penalty_early = task_starts[task.id] * W_EARLY
         objective_terms.append(reward_schedule + reward_priority - penalty_early)
