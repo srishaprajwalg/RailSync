@@ -1,7 +1,7 @@
 import pytest
-from core.schemas import GoodsTrainForecast, MaintenanceTask, TrainSchedule, PlannedBlock
-from services.optimizer import optimize_blocks, is_task_feasible_alone
-from services.timetable_analyzer import get_goods_train_occupancy
+from backend.core.schemas import GoodsTrainForecast, MaintenanceTask, TrainSchedule, PlannedBlock
+from backend.services.optimizer import optimize_blocks, is_task_feasible_alone
+from backend.services.timetable_analyzer import get_goods_train_occupancy
 
 def test_freight_uncertainty_does_not_block_corridor_unnecessarily():
     # If the old model was used, a 370-min window at start_km to end_km would block all tasks 

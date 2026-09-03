@@ -1,4 +1,4 @@
-from core.schemas import MaintenanceTask
+from backend.core.schemas import MaintenanceTask
 from typing import List
 
 # Explicit compatibility matrix based on task types

@@ -1,6 +1,7 @@
 import random
+import zlib
 from typing import List, Dict
-from core.schemas import Station, TrainSchedule, TrainStop, MaintenanceTask, GoodsTrainForecast
+from backend.core.schemas import Station, TrainSchedule, TrainStop, MaintenanceTask, GoodsTrainForecast
 
 # Approximate stations and chainages for SBC-JTJ corridor
 MOCK_STATIONS = [
@@ -82,71 +83,178 @@ def generate_mock_timetables() -> List[TrainSchedule]:
             
     return schedules
 
-def generate_mock_goods_forecasts() -> List[GoodsTrainForecast]:
+def generate_mock_goods_forecasts(corridor_id: str = "SBC-JTJ", total_km: float = None) -> List[GoodsTrainForecast]:
     """Generates wide-window forecasts for goods trains."""
-    random.seed(42)
+    if corridor_id == "SBC-JTJ" and total_km is None:
+        random.seed(42)
+        forecasts = []
+        for day in range(HORIZON_DAYS):
+            day_offset = day * MINS_PER_DAY
+            # Up line goods trains
+            for i in range(6): 
+                start_km = 0.0
+                end_km = 145.2
+                earliest_entry = day_offset + random.randint(0, MINS_PER_DAY - 300)
+                latest_exit = earliest_entry + 250 + 120 
+                forecasts.append(GoodsTrainForecast(
+                    forecast_id=f"FREIGHT_UP_D{day}_{i}",
+                    direction="Up",
+                    start_km=start_km,
+                    end_km=end_km,
+                    earliest_entry_mins=earliest_entry,
+                    latest_exit_mins=latest_exit
+                ))
+            # Down line goods trains
+            for i in range(6):
+                start_km = 145.2
+                end_km = 0.0
+                earliest_entry = day_offset + random.randint(0, MINS_PER_DAY - 300)
+                latest_exit = earliest_entry + 250 + 120 
+                forecasts.append(GoodsTrainForecast(
+                    forecast_id=f"FREIGHT_DN_D{day}_{i}",
+                    direction="Down",
+                    start_km=start_km,
+                    end_km=end_km,
+                    earliest_entry_mins=earliest_entry,
+                    latest_exit_mins=latest_exit
+                ))
+        return forecasts
+
+    # Corridor-parameterized generation
+    prefix = corridor_id.replace("-", "_")
+    seed_val = (zlib.crc32(corridor_id.encode()) % 10000)
+    random.seed(seed_val)
+    max_km = total_km if total_km is not None else 100.0
     forecasts = []
-    
     for day in range(HORIZON_DAYS):
         day_offset = day * MINS_PER_DAY
-        
-        # Up line goods trains
-        for i in range(6): 
-            start_km = 0.0
-            end_km = 145.2
-            earliest_entry = day_offset + random.randint(0, MINS_PER_DAY - 300)
-            latest_exit = earliest_entry + 250 + 120 
-            
-            forecasts.append(GoodsTrainForecast(
-                forecast_id=f"FREIGHT_UP_D{day}_{i}",
-                direction="Up",
-                start_km=start_km,
-                end_km=end_km,
-                earliest_entry_mins=earliest_entry,
-                latest_exit_mins=latest_exit
-            ))
-            
-        # Down line goods trains
         for i in range(6):
-            start_km = 145.2
-            end_km = 0.0
             earliest_entry = day_offset + random.randint(0, MINS_PER_DAY - 300)
-            latest_exit = earliest_entry + 250 + 120 
-            
+            latest_exit = earliest_entry + 250 + 120
             forecasts.append(GoodsTrainForecast(
-                forecast_id=f"FREIGHT_DN_D{day}_{i}",
-                direction="Down",
-                start_km=start_km,
-                end_km=end_km,
+                forecast_id=f"FREIGHT_{prefix}_UP_D{day}_{i}",
+                direction="Up",
+                start_km=0.0,
+                end_km=max_km,
                 earliest_entry_mins=earliest_entry,
                 latest_exit_mins=latest_exit
             ))
-            
+        for i in range(6):
+            earliest_entry = day_offset + random.randint(0, MINS_PER_DAY - 300)
+            latest_exit = earliest_entry + 250 + 120
+            forecasts.append(GoodsTrainForecast(
+                forecast_id=f"FREIGHT_{prefix}_DN_D{day}_{i}",
+                direction="Down",
+                start_km=max_km,
+                end_km=0.0,
+                earliest_entry_mins=earliest_entry,
+                latest_exit_mins=latest_exit
+            ))
     return forecasts
 
-def generate_mock_tasks() -> List[MaintenanceTask]:
+def generate_mock_tasks(corridor_id: str = "SBC-JTJ", stations: List[Station] = None, total_km: float = None) -> List[MaintenanceTask]:
     """Generates synthetic maintenance tasks with defects, severity, and overdue status."""
-    random.seed(42)
+    if corridor_id == "SBC-JTJ" and stations is None:
+        random.seed(42)
+        tasks = []
+        directions = ["Up", "Down"]
+        origins = ["Defect", "Routine Maintenance"]
+        
+        def get_deadline():
+            return random.choices(
+                [random.randint(60, 300), random.randint(720, 1440), random.randint(1440, 7*1440), random.randint(7*1440, 30*1440)],
+                weights=[5, 20, 35, 40]
+            )[0]
+        
+        # TMS (Engineering)
+        for i in range(150):
+            start_km = random.randint(10, 130)
+            origin = random.choices(origins, weights=[30, 70])[0]
+            severity = random.randint(3, 5) if origin == "Defect" else random.randint(1, 3)
+            overdue = random.randint(0, 30) if origin == "Routine Maintenance" else random.randint(0, 5)
+            tasks.append(MaintenanceTask(
+                id=f"TMS_{i}",
+                department="TMS",
+                task_type="Track Tamping" if origin == "Routine Maintenance" else "Rail Fracture Repair",
+                origin=origin,
+                severity=severity,
+                overdue_days=overdue,
+                asset_criticality=random.randint(1, 5),
+                start_km=float(start_km),
+                end_km=float(start_km + random.randint(1, 5)),
+                duration_mins=random.choice([120, 180, 240]),
+                deadline_mins=get_deadline(),
+                line_direction=random.choice(directions)
+            ))
+            
+        # TDMS (Traction)
+        for i in range(120):
+            start_km = random.randint(10, 130)
+            origin = random.choices(origins, weights=[20, 80])[0]
+            severity = random.randint(3, 5) if origin == "Defect" else random.randint(1, 3)
+            overdue = random.randint(0, 15) if origin == "Routine Maintenance" else random.randint(0, 2)
+            tasks.append(MaintenanceTask(
+                id=f"TDMS_{i}",
+                department="TDMS",
+                task_type="OHE Maintenance" if origin == "Routine Maintenance" else "Insulator Flashover",
+                origin=origin,
+                severity=severity,
+                overdue_days=overdue,
+                asset_criticality=random.randint(1, 5),
+                start_km=float(start_km),
+                end_km=float(start_km + random.randint(2, 8)),
+                duration_mins=90,
+                deadline_mins=get_deadline(),
+                line_direction=random.choice(directions)
+            ))
+            
+        # SMMS (Signalling)
+        for i in range(150):
+            station = random.choice(MOCK_STATIONS[1:-1])
+            origin = random.choices(origins, weights=[40, 60])[0]
+            severity = random.randint(4, 5) if origin == "Defect" else random.randint(1, 4)
+            overdue = random.randint(0, 20) if origin == "Routine Maintenance" else 0
+            tasks.append(MaintenanceTask(
+                id=f"SMMS_{i}",
+                department="SMMS",
+                task_type="Point Overhaul" if origin == "Routine Maintenance" else "Signal Failure",
+                origin=origin,
+                severity=severity,
+                overdue_days=overdue,
+                asset_criticality=random.randint(3, 5),
+                start_km=station.chainage_km - 0.5,
+                end_km=station.chainage_km + 0.5,
+                duration_mins=60,
+                deadline_mins=get_deadline(),
+                line_direction=random.choice(directions)
+            ))
+            
+        return tasks
+
+    # Corridor-parameterized generation
+    prefix = corridor_id.replace("-", "_")
+    seed_val = (zlib.crc32(corridor_id.encode()) + 42) % 10000
+    random.seed(seed_val)
     tasks = []
     directions = ["Up", "Down"]
     origins = ["Defect", "Routine Maintenance"]
-    
+    max_km = int(total_km) if total_km else 100
+    stn_list = stations if stations and len(stations) > 2 else MOCK_STATIONS
+
     def get_deadline():
-        # Mix of extremely tight (infeasible), same-day, weekly, and monthly deadlines
         return random.choices(
             [random.randint(60, 300), random.randint(720, 1440), random.randint(1440, 7*1440), random.randint(7*1440, 30*1440)],
             weights=[5, 20, 35, 40]
         )[0]
-    
+
     # TMS (Engineering)
     for i in range(150):
-        start_km = random.randint(10, 130)
+        start_km = random.randint(int(max_km * 0.05), int(max_km * 0.90))
         origin = random.choices(origins, weights=[30, 70])[0]
         severity = random.randint(3, 5) if origin == "Defect" else random.randint(1, 3)
         overdue = random.randint(0, 30) if origin == "Routine Maintenance" else random.randint(0, 5)
-        
         tasks.append(MaintenanceTask(
-            id=f"TMS_{i}",
+            id=f"TMS_{prefix}_{i}",
             department="TMS",
             task_type="Track Tamping" if origin == "Routine Maintenance" else "Rail Fracture Repair",
             origin=origin,
@@ -159,16 +267,15 @@ def generate_mock_tasks() -> List[MaintenanceTask]:
             deadline_mins=get_deadline(),
             line_direction=random.choice(directions)
         ))
-        
+
     # TDMS (Traction)
     for i in range(120):
-        start_km = random.randint(10, 130)
+        start_km = random.randint(int(max_km * 0.05), int(max_km * 0.90))
         origin = random.choices(origins, weights=[20, 80])[0]
         severity = random.randint(3, 5) if origin == "Defect" else random.randint(1, 3)
         overdue = random.randint(0, 15) if origin == "Routine Maintenance" else random.randint(0, 2)
-        
         tasks.append(MaintenanceTask(
-            id=f"TDMS_{i}",
+            id=f"TDMS_{prefix}_{i}",
             department="TDMS",
             task_type="OHE Maintenance" if origin == "Routine Maintenance" else "Insulator Flashover",
             origin=origin,
@@ -181,27 +288,26 @@ def generate_mock_tasks() -> List[MaintenanceTask]:
             deadline_mins=get_deadline(),
             line_direction=random.choice(directions)
         ))
-        
+
     # SMMS (Signalling)
     for i in range(150):
-        station = random.choice(MOCK_STATIONS[1:-1])
+        station = random.choice(stn_list[1:-1])
         origin = random.choices(origins, weights=[40, 60])[0]
         severity = random.randint(4, 5) if origin == "Defect" else random.randint(1, 4)
         overdue = random.randint(0, 20) if origin == "Routine Maintenance" else 0
-        
         tasks.append(MaintenanceTask(
-            id=f"SMMS_{i}",
+            id=f"SMMS_{prefix}_{i}",
             department="SMMS",
             task_type="Point Overhaul" if origin == "Routine Maintenance" else "Signal Failure",
             origin=origin,
             severity=severity,
             overdue_days=overdue,
-            asset_criticality=random.randint(3, 5), # Station areas are more critical
-            start_km=station.chainage_km - 0.5,
-            end_km=station.chainage_km + 0.5,
+            asset_criticality=random.randint(3, 5),
+            start_km=max(0.0, station.chainage_km - 0.5),
+            end_km=min(total_km or 145.0, station.chainage_km + 0.5),
             duration_mins=60,
             deadline_mins=get_deadline(),
             line_direction=random.choice(directions)
         ))
-        
+
     return tasks

@@ -1,7 +1,27 @@
+import { useState } from 'react';
 import { formatDuration, formatTime } from '../utils/formatters';
-import { CheckCircle, MapPin, Clock, Info, Calendar } from 'lucide-react';
+import { CheckCircle, MapPin, Clock, Info, Calendar, ChevronRight, X, Shield, FileText } from 'lucide-react';
+import { fetchBlockDecisions } from '../services/api';
 
 export default function BlockPlan({ blocks, tasks, timeWindow }) {
+  const [selectedBlock, setSelectedBlock] = useState(null);
+  const [blockDecisions, setBlockDecisions] = useState([]);
+  const [loadingDecisions, setLoadingDecisions] = useState(false);
+
+  const handleOpenDecisions = async (block) => {
+    try {
+      setSelectedBlock(block);
+      setLoadingDecisions(true);
+      const decs = await fetchBlockDecisions(block.id);
+      setBlockDecisions(decs);
+      setLoadingDecisions(false);
+    } catch (err) {
+      console.error('Failed to load block decisions:', err);
+      setBlockDecisions([]);
+      setLoadingDecisions(false);
+    }
+  };
+
   if (!blocks || blocks.length === 0) {
     return (
       <div className="bg-white border border-rail-border rounded-lg shadow-sm p-10 text-center">
@@ -13,7 +33,6 @@ export default function BlockPlan({ blocks, tasks, timeWindow }) {
   }
 
   // Derive base date for calendar representation (similar to SimpleGanttView)
-  // We use current date to anchor Day 0
   const baseDate = new Date();
   baseDate.setHours(0, 0, 0, 0);
 
@@ -26,6 +45,74 @@ export default function BlockPlan({ blocks, tasks, timeWindow }) {
 
   return (
     <div className="bg-white border border-rail-border rounded-lg shadow-sm">
+      {/* Decisions Trace Modal */}
+      {selectedBlock && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
+            <div className="p-4 bg-rail-blue text-white flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <FileText className="w-5 h-5 text-rail-saffron" />
+                <h3 className="font-bold text-base">Schedule Decision Trace — Block {selectedBlock.id.substring(0, 8)}</h3>
+              </div>
+              <button onClick={() => setSelectedBlock(null)} className="text-white/80 hover:text-white p-1 rounded">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-4 text-xs">
+              <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
+                <p className="font-semibold text-gray-800 text-sm">{selectedBlock.reasoning}</p>
+                <div className="flex gap-4 mt-2 text-gray-600">
+                  <span><strong>Direction:</strong> {selectedBlock.line_direction} Line</span>
+                  <span><strong>Span:</strong> Km {selectedBlock.start_km.toFixed(1)} to {selectedBlock.end_km.toFixed(1)}</span>
+                  <span><strong>Duration:</strong> {formatDuration(selectedBlock.end_time_mins - selectedBlock.start_time_mins)}</span>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-bold text-gray-700 uppercase tracking-wider text-[11px] mb-2">
+                  Task Assignment Rationales ({selectedBlock.assigned_tasks.length})
+                </h4>
+                {loadingDecisions ? (
+                  <div className="text-center py-6 text-gray-400">Loading verifiable solver decisions from PostgreSQL...</div>
+                ) : blockDecisions.length === 0 ? (
+                  <div className="text-gray-500 py-4 italic">No granular decision rows found for this block.</div>
+                ) : (
+                  <div className="space-y-3">
+                    {blockDecisions.map(dec => {
+                      const t = tasks.find(tsk => tsk.id === dec.maintenance_request_id);
+                      return (
+                        <div key={dec.id} className="p-3 bg-white border border-gray-200 rounded-lg shadow-2xs space-y-1.5">
+                          <div className="flex justify-between items-center">
+                            <span className="font-mono font-bold text-rail-blue">{dec.maintenance_request_id}</span>
+                            <span className="text-[10px] font-semibold bg-blue-50 text-rail-blue px-2 py-0.5 rounded">
+                              {dec.solver_reason || 'CP-SAT Interval'}
+                            </span>
+                          </div>
+                          {t && <p className="text-xs font-medium text-gray-800">{t.task_type} ({t.department})</p>}
+                          <p className="text-gray-600"><strong>Why Selected:</strong> {dec.why_selected}</p>
+                          <p className="text-gray-600"><strong>Safety & Timetable:</strong> {dec.train_constraints}</p>
+                          <p className="text-gray-600"><strong>Coordination:</strong> {dec.department_coordination}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="p-3 bg-gray-50 border-t border-gray-200 flex justify-end">
+              <button
+                onClick={() => setSelectedBlock(null)}
+                className="px-3 py-1.5 text-xs text-gray-600 hover:text-gray-800 rounded border border-gray-300 bg-white"
+              >
+                Close Trace
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="p-5 border-b border-gray-100 bg-gray-50/50">
         <h3 className="text-xl font-bold text-gray-800">Optimized Maintenance Action Plan</h3>
         <p className="text-sm text-gray-500 mt-1">Safe, coordinated maintenance windows prioritizing railway asset availability.</p>
@@ -108,14 +195,22 @@ export default function BlockPlan({ blocks, tasks, timeWindow }) {
                   </div>
 
                   {/* Optimization Decision */}
-                  <div className="flex items-start gap-2 bg-rail-bg p-3 rounded-md border border-rail-border/50">
-                    <Info className="w-4 h-4 text-gray-500 shrink-0 mt-0.5" />
-                    <p className="text-[11px] text-gray-600 leading-relaxed">
-                      <strong>AI Coordination: </strong>
-                      {isConsolidated 
-                        ? "Tasks were grouped to minimize operational downtime, overlapping securely in time and space."
-                        : "Task was scheduled into an optimized gap between passenger and freight train operations."}
-                    </p>
+                  <div className="flex flex-col gap-2 bg-rail-bg p-3 rounded-md border border-rail-border/50">
+                    <div className="flex items-start gap-2">
+                      <Info className="w-4 h-4 text-rail-blue shrink-0 mt-0.5" />
+                      <p className="text-[11px] text-gray-700 leading-relaxed">
+                        <strong>AI Coordination: </strong>
+                        {block.reasoning || (isConsolidated 
+                          ? "Tasks were grouped to minimize operational downtime, overlapping securely in time and space."
+                          : "Task was scheduled into an optimized gap between passenger and freight train operations.")}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleOpenDecisions(block)}
+                      className="text-[10px] font-semibold text-rail-blue hover:text-blue-800 self-end flex items-center gap-0.5 transition-colors mt-0.5"
+                    >
+                      View Decision Trace <ChevronRight className="w-3 h-3" />
+                    </button>
                   </div>
                   
                 </div>
@@ -127,3 +222,4 @@ export default function BlockPlan({ blocks, tasks, timeWindow }) {
     </div>
   );
 }
+

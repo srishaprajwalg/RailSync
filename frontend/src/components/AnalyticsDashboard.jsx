@@ -195,7 +195,7 @@ export default function AnalyticsDashboard({ tasks, blocks, taskStatuses, metric
         {/* Corridor Hotspots */}
         <div className="bg-white p-5 rounded-lg shadow-sm border border-rail-border">
           <h3 className="text-sm font-bold text-gray-800 mb-1 flex items-center gap-1"><MapPin className="w-4 h-4"/> Maintenance Hotspots</h3>
-          <p className="text-xs text-gray-500 mb-4">Task distribution along the SBC → JTJ corridor</p>
+          <p className="text-xs text-gray-500 mb-4">Task distribution along the active corridor</p>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={hotspots} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>

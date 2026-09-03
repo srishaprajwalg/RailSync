@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { fetchCorridor, fetchTimetables, fetchTasks, fetchGoodsForecasts, optimizeBlocks, updateTaskStatus } from '../services/api';
+import { fetchCorridor, fetchTimetables, fetchTasks, fetchGoodsForecasts, optimizeBlocks, updateTaskStatus, fetchBlocks, fetchLatestOptimizationRun } from '../services/api';
 import KPICards from './KPICards';
 import BlockPlan from './BlockPlan';
 import CorridorTimeline from './CorridorTimeline';
@@ -7,7 +7,8 @@ import TaskTable from './TaskTable';
 import TaskForm from './TaskForm';
 import AnalyticsDashboard from './AnalyticsDashboard';
 import SimpleGanttView from './SimpleGanttView';
-import { Train, Activity, AlertTriangle, Settings, Sliders, LayoutList, TrendingUp, CalendarDays, BarChart2 } from 'lucide-react';
+import LocationQueryModal from './LocationQueryModal';
+import { Train, Activity, AlertTriangle, Settings, Sliders, LayoutList, TrendingUp, CalendarDays, BarChart2, MapPin, Database } from 'lucide-react';
 
 export default function Dashboard() {
   const [loading, setLoading] = useState(true);
@@ -16,6 +17,9 @@ export default function Dashboard() {
   const [selectedWeek, setSelectedWeek] = useState(1);
   const [selectedDay, setSelectedDay] = useState(1);
   const [viewType, setViewType] = useState('technical'); // technical, simple
+  const [selectedDept, setSelectedDept] = useState('ALL'); // ALL, ENGINEERING, S&T, TRACTION
+  const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
+  const [selectedCorridor, setSelectedCorridor] = useState('SBC-JTJ');
   const [data, setData] = useState({
     corridor: [],
     timetables: [],
@@ -29,19 +33,29 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('analytics'); // setup, control, action, analytics
 
   useEffect(() => {
-    loadInitialData();
-  }, []);
+    loadInitialData(selectedDept, selectedCorridor);
+  }, [selectedDept, selectedCorridor]);
 
-  const loadInitialData = async () => {
+  const loadInitialData = async (dept = 'ALL', corridor = selectedCorridor) => {
     try {
       setLoading(true);
-      const [corridor, timetables, forecasts, tasks] = await Promise.all([
-        fetchCorridor(),
-        fetchTimetables(),
-        fetchGoodsForecasts(),
-        fetchTasks(),
+      const [corridorData, timetables, forecasts, tasks, blocks, latestRun] = await Promise.all([
+        fetchCorridor(corridor),
+        fetchTimetables(corridor),
+        fetchGoodsForecasts(corridor),
+        fetchTasks(dept, corridor),
+        fetchBlocks(corridor).catch(() => []),
+        fetchLatestOptimizationRun(corridor).catch(() => null),
       ]);
-      setData(prev => ({ ...prev, corridor, timetables, forecasts, tasks }));
+      setData(prev => ({
+        ...prev,
+        corridor: corridorData,
+        timetables,
+        forecasts,
+        tasks,
+        blocks: blocks || [],
+        metrics: latestRun?.metrics || null,
+      }));
       setLoading(false);
     } catch (err) {
       setError(err.message);
@@ -52,11 +66,11 @@ export default function Dashboard() {
   const handleOptimize = async () => {
     try {
       setOptimizing(true);
-      const result = await optimizeBlocks(30); // Hardcoded to 30 days backend optimization
+      const result = await optimizeBlocks(30, selectedCorridor); // 30 days backend optimization
       setData(prev => ({
         ...prev,
         blocks: result.blocks,
-        metrics: result.metrics, // baseline from backend
+        metrics: result.metrics,
         task_statuses: result.task_statuses || {},
       }));
       setOptimizing(false);
@@ -142,25 +156,57 @@ export default function Dashboard() {
     }
   };
 
-  if (loading) {
-    return <div className="flex h-screen items-center justify-center text-rail-blue">Loading simulator data...</div>;
+  if (loading && data.corridor.length === 0) {
+    return <div className="flex h-screen items-center justify-center text-rail-blue font-medium">Loading RailVyuha PostgreSQL Database...</div>;
   }
 
   return (
     <div className="min-h-screen bg-rail-bg">
+      {/* Location Query Modal */}
+      <LocationQueryModal
+        isOpen={isLocationModalOpen}
+        onClose={() => setIsLocationModalOpen(false)}
+      />
+
       {/* Header */}
       <header className="bg-rail-blue text-white py-4 px-6 shadow-md">
         <div className="flex justify-between items-center max-w-7xl mx-auto">
           <div className="flex items-center gap-3">
             <Train className="w-8 h-8 text-rail-saffron" />
             <div>
-              <h1 className="text-xl font-bold tracking-tight">RailVyuha</h1>
-              <p className="text-xs text-rail-border opacity-80">Automatic Block Planning System</p>
+              <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
+                RailVyuha
+                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-mono font-normal flex items-center gap-1">
+                  <Database className="w-3 h-3" /> PostgreSQL System of Record
+                </span>
+              </h1>
+              <p className="text-xs text-rail-border opacity-80">Cloud Maintenance Decision-Support & CP-SAT Scheduling System</p>
             </div>
           </div>
-          <div className="text-right">
-            <div className="text-sm font-semibold">Bengaluru City (SBC) → Jolarpettai (JTJ)</div>
-            <div className="text-xs text-rail-saffron bg-white/10 px-2 py-0.5 rounded inline-block mt-1">Prototype Simulation</div>
+          <div className="text-right flex items-center gap-3">
+            <button
+              onClick={() => setIsLocationModalOpen(true)}
+              className="bg-white/10 hover:bg-white/20 text-white text-xs px-3 py-1.5 rounded flex items-center gap-1.5 transition-colors border border-white/20"
+            >
+              <MapPin className="w-3.5 h-3.5 text-rail-saffron" />
+              KM Radius Query (±5km)
+            </button>
+            <div className="flex flex-col items-end">
+              <select
+                value={selectedCorridor}
+                onChange={(e) => setSelectedCorridor(e.target.value)}
+                className="bg-rail-navy border border-white/30 text-white text-xs rounded px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-rail-saffron cursor-pointer font-medium"
+              >
+                <option value="SBC-JTJ">SBC-JTJ: Bengaluru → Jolarpettai (145 km)</option>
+                <option value="NDLS-CNB">NDLS-CNB: New Delhi → Kanpur (440 km)</option>
+                <option value="CSTM-PUNE">CSTM-PUNE: Mumbai CST → Pune (192 km)</option>
+              </select>
+              <div className="text-[10px] text-rail-saffron bg-white/10 px-2 py-0.5 rounded inline-block mt-1">
+                {selectedCorridor === 'SBC-JTJ' && 'Double Line Electrified Trunk (SWR/SR)'}
+                {selectedCorridor === 'NDLS-CNB' && 'Quadruple/Double Line Electrified (NR/NCR)'}
+                {selectedCorridor === 'CSTM-PUNE' && 'Bhor Ghat Electrified Mainline (CR)'}
+              </div>
+            </div>
           </div>
         </div>
       </header>
@@ -173,9 +219,27 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Prototype Disclaimer */}
-        <div className="text-xs text-rail-text-muted bg-white px-4 py-2 border border-rail-border rounded-md shadow-sm">
-          <strong>Note:</strong> Station and timetable data are derived from public Indian Railways data (approximate chainage). Maintenance tasks and goods-train forecasts are synthetic — no public source exists for either.
+        {/* Data Provenance Notice */}
+        <div className="text-xs text-rail-text-muted bg-white px-4 py-2 border border-rail-border rounded-md shadow-sm flex justify-between items-center flex-wrap gap-2">
+          <div>
+            <strong>Data Integrity:</strong> Station coordinates & passenger timetables are derived from <strong>real Indian Railways data (datameet/railways)</strong>. Maintenance requests and goods forecasts are explicitly labeled <strong>source_type: SYNTHETIC</strong>.
+          </div>
+          <div className="flex items-center gap-1.5 text-[11px]">
+            <span className="font-semibold text-gray-700">Department Scope:</span>
+            <div className="flex bg-gray-100 p-0.5 rounded border border-gray-200">
+              {['ALL', 'ENGINEERING', 'S&T', 'TRACTION'].map(dept => (
+                <button
+                  key={dept}
+                  onClick={() => setSelectedDept(dept)}
+                  className={`px-2 py-0.5 text-[10px] font-semibold rounded ${
+                    selectedDept === dept ? 'bg-rail-blue text-white shadow-xs' : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  {dept}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         {/* Tab Navigation */}
@@ -252,14 +316,20 @@ export default function Dashboard() {
             {dynamicMetrics && <KPICards metrics={dynamicMetrics} />}
             <TaskForm onTaskAdded={(updatedTasks) => setData((prev) => ({ ...prev, tasks: updatedTasks }))} />
             <div className="mt-8">
-              <TaskTable tasks={data.tasks} blocks={filteredBlocks} taskStatuses={data.task_statuses} onUpdateStatus={handleStatusUpdate} />
+              <TaskTable 
+                tasks={data.tasks} 
+                blocks={filteredBlocks} 
+                taskStatuses={data.task_statuses} 
+                onUpdateStatus={handleStatusUpdate}
+                onReloadTasks={() => loadInitialData(selectedDept)}
+              />
             </div>
           </div>
         )}
 
         {activeTab === 'control' && (
           <div className="space-y-6">
-            <div className="flex justify-between items-end mb-4">
+            <div className="flex justify-between items-end mb-4 flex-wrap gap-4">
               <div>
                 <h2 className="text-2xl font-bold text-rail-text-dark">Control Room</h2>
                 <p className="text-rail-text-muted text-sm">Coordinate multi-department requests with CP-SAT constraints.</p>

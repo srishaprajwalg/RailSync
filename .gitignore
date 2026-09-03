@@ -18,6 +18,11 @@ ENV/
 .env.*
 !.env.example
 
+# ML model artifacts & serialization binaries
+*.joblib
+*.pkl
+backend/artifacts/models/*.joblib
+
 # Node
 node_modules/
 npm-debug.log*

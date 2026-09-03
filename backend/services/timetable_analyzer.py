@@ -1,21 +1,52 @@
-from core.schemas import TrainSchedule, GoodsTrainForecast
-from services.real_corridor import CORRIDOR_STATIONS
-from typing import List, Tuple, Optional
+from backend.core.schemas import TrainSchedule, GoodsTrainForecast
+from backend.services.real_corridor import CORRIDOR_CONFIGS, get_corridor_stations, CORRIDOR_STATIONS
+from typing import List, Tuple, Optional, Any
+
+STATION_CHAINAGE_MAP: dict[str, float] = {}
+
+def _init_station_chainage_map():
+    global STATION_CHAINAGE_MAP
+    for c_id in CORRIDOR_CONFIGS:
+        try:
+            stns = get_corridor_stations(c_id)
+            for st in stns:
+                STATION_CHAINAGE_MAP[st.id] = st.chainage_km
+                if hasattr(st, "code") and st.code:
+                    STATION_CHAINAGE_MAP[st.code] = st.chainage_km
+        except Exception:
+            pass
+    # Fallback to CORRIDOR_STATIONS if needed
+    for st in CORRIDOR_STATIONS:
+        STATION_CHAINAGE_MAP[st.id] = st.chainage_km
+        if hasattr(st, "code") and st.code:
+            STATION_CHAINAGE_MAP[st.code] = st.chainage_km
+
+_init_station_chainage_map()
 
 def get_station_chainage(station_id: str) -> float:
-    for st in CORRIDOR_STATIONS:
-        if st.id == station_id:
-            return st.chainage_km
-    return 0.0
+    if station_id in STATION_CHAINAGE_MAP:
+        return STATION_CHAINAGE_MAP[station_id]
+    _init_station_chainage_map()
+    return STATION_CHAINAGE_MAP.get(station_id, 0.0)
+
+def _get_sorted_stops_with_km(schedule: TrainSchedule) -> list[tuple[Any, float]]:
+    """Returns precomputed and sorted (stop, chainage_km) tuples for a train schedule."""
+    cached = getattr(schedule, "_sorted_stops_with_km", None)
+    if cached is not None:
+        return cached
+    stops_with_km = [(s, get_station_chainage(s.station_id)) for s in schedule.stops]
+    stops_with_km.sort(key=lambda x: x[1])
+    try:
+        schedule._sorted_stops_with_km = stops_with_km
+    except Exception:
+        pass
+    return stops_with_km
 
 def interpolate_train_time(schedule: TrainSchedule, target_km: float) -> Optional[int]:
     """Interpolates the time a passenger train passes a specific chainage."""
-    # Find the stops that bracket this chainage
-    stops = schedule.stops
-    
-    # Ensure stops are ordered by chainage
-    stops_with_km = [(s, get_station_chainage(s.station_id)) for s in stops]
-    stops_with_km.sort(key=lambda x: x[1])
+    stops_with_km = _get_sorted_stops_with_km(schedule)
+    if not stops_with_km:
+        return None
     
     if schedule.direction == "Up":
         # Chainage is increasing

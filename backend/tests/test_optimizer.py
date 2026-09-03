@@ -1,6 +1,7 @@
-
-from core.schemas import MaintenanceTask, PriorityDetails
-from services.optimizer import optimize_blocks, group_tasks_into_blocks
+import pytest
+from backend.core.schemas import MaintenanceTask, PriorityDetails, TrainSchedule, TrainStop
+from backend.services.optimizer import optimize_blocks, group_tasks_into_blocks, is_block_envelope_safe, create_block_from_group
+from backend.services.timetable_analyzer import interpolate_train_time
 
 def create_task(id, department, task_type, start_km, end_km, duration, direction="Up", deadline=1440):
     return MaintenanceTask(
@@ -229,4 +230,206 @@ def test_objective_earliness_is_lowest_priority():
     planned = [b for b in blocks if len(b.assigned_tasks) > 0]
     assert len(planned) == 1, "Only one can be scheduled due to resource limit"
     assert planned[0].start_time_mins == 0, "The solver must choose the earliest possible start time (0) to minimize earliness penalty"
+
+def test_regression_48km_unsafe_cluster_splitting():
+    """
+    PHASE 3B REGRESSION TEST:
+    Reproduces the Phase 3A safety failure pattern:
+      - Candidate mega-block: Time 0–120 min, Spatial Km 41–89 (48 km span).
+      - Passing train intersects corridor Km 41–89 temporally around minute 112.
+    Asserts:
+      1. is_block_envelope_safe(...) returns False for the unsafe 41–89 km / 0–120 min candidate.
+      2. The grouping logic does NOT produce a single 48 km block spanning Km 41–89.
+      3. Every resulting block produced by the grouping logic satisfies is_block_envelope_safe(...) == True.
+      4. No task is lost during splitting.
+      5. No task's CP-SAT start/end time is modified by the grouping/splitting logic.
+      6. The 20 km maximum block-span invariant prevents a 48 km block even independently of train collisions.
+    """
+    # Deterministic train passing WFD (Km 23.6) -> BWT (Km 73.5) -> KPN (Km 108.5)
+    # Intersects corridor Km 41-89 around minute 107-144 (active at minute 112)
+    train = TrainSchedule(
+        train_id="TEST_REG_112",
+        type="Express",
+        direction="Up",
+        stops=[
+            TrainStop(station_id="WFD", arrival_mins=90, departure_mins=95),
+            TrainStop(station_id="BWT", arrival_mins=130, departure_mins=132),
+            TrainStop(station_id="KPN", arrival_mins=160, departure_mins=162),
+        ]
+    )
+    schedules = [train]
+
+    # 1. Assert is_block_envelope_safe returns False for the unsafe 41-89 km / 0-120 min candidate
+    is_safe = is_block_envelope_safe(
+        schedules=schedules,
+        forecasts=[],
+        direction="Up",
+        start_km=41.0,
+        end_km=89.0,
+        start_time=0,
+        end_time=120,
+        safety_margin=15
+    )
+    assert is_safe is False, "41-89 km candidate block must fail safety verification"
+
+    # Tasks forming the candidate cluster (each safe on its own local segment)
+    tA = create_task("TASK_KM41", "Engineering", "Track Tamping", 41.0, 43.0, 60, direction="Up")
+    tB = create_task("TASK_KM60", "Signalling", "Point Overhaul", 60.0, 63.0, 60, direction="Up")
+    tC = create_task("TASK_KM86", "Traction", "OHE Maintenance", 86.0, 89.0, 60, direction="Up")
+
+    scheduled_intervals = [
+        (0, 60, tA),
+        (30, 90, tB),
+        (40, 100, tC)
+    ]
+
+    # Verify individual tasks are each safe on their own individual spans
+    assert is_block_envelope_safe(schedules, [], "Up", 41.0, 43.0, 0, 60, safety_margin=15) is True
+    assert is_block_envelope_safe(schedules, [], "Up", 60.0, 63.0, 30, 90, safety_margin=15) is True
+    assert is_block_envelope_safe(schedules, [], "Up", 86.0, 89.0, 40, 100, safety_margin=15) is True
+
+    # Run safe grouping
+    blocks = group_tasks_into_blocks(scheduled_intervals, "Up", schedules=schedules, forecasts=[], safety_margin=15)
+
+    # 2. Assert grouping logic does NOT produce a single 48 km block spanning Km 41-89
+    for b in blocks:
+        span = b.end_km - b.start_km
+        assert not (b.start_km <= 41.0 and b.end_km >= 89.0), "Grouping must not produce a single 48 km block"
+        assert span <= 20.0, f"Block span {span} km exceeds 20 km limit"
+
+    # 3. Assert every resulting block satisfies is_block_envelope_safe == True
+    for b in blocks:
+        assert is_block_envelope_safe(
+            schedules=schedules,
+            forecasts=[],
+            direction=b.line_direction,
+            start_km=b.start_km,
+            end_km=b.end_km,
+            start_time=b.start_time_mins,
+            end_time=b.end_time_mins,
+            safety_margin=15
+        ) is True, f"Block {b.id} must pass safety validation"
+
+    # 4. Assert no task is lost
+    assigned_ids = set()
+    for b in blocks:
+        assigned_ids.update(b.assigned_tasks)
+    assert assigned_ids == {"TASK_KM41", "TASK_KM60", "TASK_KM86"}, "All tasks must be preserved"
+
+    # 5. Assert no task's CP-SAT start/end time is modified
+    expected_times = {"TASK_KM41": (0, 60), "TASK_KM60": (30, 90), "TASK_KM86": (40, 100)}
+    for s, e, t in scheduled_intervals:
+        assert (s, e) == expected_times[t.id], "Scheduled interval was modified"
+
+    # 6. Assert that 20 km maximum block-span invariant prevents 48 km block even independently of train collisions
+    blocks_no_trains = group_tasks_into_blocks(scheduled_intervals, "Up", schedules=[], forecasts=[], safety_margin=15)
+    for b in blocks_no_trains:
+        span = b.end_km - b.start_km
+        assert span <= 20.0, f"Block span {span} km exceeds 20 km limit even without train conflicts"
+        assert not (b.start_km <= 41.0 and b.end_km >= 89.0), "Invariant must reject 48 km block independently of trains"
+
+def test_regression_transitive_graph_chain_exceeding_20km():
+    """
+    PHASE 3B FINAL REGRESSION TEST:
+    Reproduces the 22 km block 2ec4eadb failure pattern:
+      - 3 tasks on the Down line whose adjacent pairs each have span <= 20 km.
+      - Total connected component union span is 22.0 km (Km 110.0 to 132.0).
+      - Zero train conflicts exist in the time window.
+    Asserts:
+      1. The whole 22 km component is NOT emitted as a single block.
+      2. Resulting blocks produced by group_tasks_into_blocks all satisfy span <= 20.0 km.
+      3. Every resulting block satisfies is_block_envelope_safe == True.
+      4. All tasks remain assigned exactly once (task conservation).
+      5. Defensive invariant: create_block_from_group directly raises ValueError for a group spanning > 20 km.
+    """
+    t1 = create_task("T_DOWN_110", "Engineering", "Track Tamping", 110.0, 118.0, 120, direction="Down")
+    t2 = create_task("T_DOWN_116", "Engineering", "Track Tamping", 116.0, 125.0, 120, direction="Down")
+    t3 = create_task("T_DOWN_124", "Traction", "OHE Maintenance", 124.0, 132.0, 120, direction="Down")
+
+    # All scheduled simultaneously in a clear window (Mins 440-560)
+    scheduled_intervals = [
+        (440, 560, t1),
+        (440, 560, t2),
+        (440, 560, t3)
+    ]
+
+    # Verify pairwise spans are all <= 20 km:
+    # Pair (t1, t2): 125.0 - 110.0 = 15.0 km <= 20.0 km
+    # Pair (t2, t3): 132.0 - 116.0 = 16.0 km <= 20.0 km
+    # Total component span: 132.0 - 110.0 = 22.0 km > 20.0 km!
+    blocks = group_tasks_into_blocks(scheduled_intervals, "Down", schedules=[], forecasts=[], safety_margin=15)
+
+    # 1. Assert the whole 22 km component is NOT emitted as a single block
+    assert len(blocks) > 1, "Transitive 22 km component must be partitioned into multiple blocks"
+    for b in blocks:
+        span = b.end_km - b.start_km
+        assert not (b.start_km <= 110.0 and b.end_km >= 132.0), "Must NOT produce a single 22 km block"
+        # 2. Resulting blocks must all have span <= 20.0 km
+        assert span <= 20.0, f"Block span {span:.1f} km exceeds hard 20 km maximum limit"
+        # 3. Every resulting block satisfies is_block_envelope_safe
+        assert is_block_envelope_safe([], [], b.line_direction, b.start_km, b.end_km, b.start_time_mins, b.end_time_mins, 15) is True
+
+    # 4. All tasks remain assigned exactly once
+    assigned_tasks = []
+    for b in blocks:
+        assigned_tasks.extend(b.assigned_tasks)
+    assert sorted(assigned_tasks) == ["T_DOWN_110", "T_DOWN_116", "T_DOWN_124"], "All tasks must be preserved exactly once"
+
+    # 5. Defensive invariant: create_block_from_group directly raises ValueError for a group spanning > 20 km
+    with pytest.raises(ValueError, match="exceeds maximum allowed span of 20.0 km"):
+        create_block_from_group(scheduled_intervals, "Down")
+
+def test_timetable_interpolation_correctness_and_identity():
+    """
+    Verifies that optimized interpolate_train_time with dictionary station lookup
+    and cached sorted stop representation produces mathematically exact results
+    for both Up and Down directions, internal points, station boundaries, and extrapolation bounds.
+    """
+    sched_up = TrainSchedule(
+        train_id="TEST_UP",
+        type="Express",
+        direction="Up",
+        stops=[
+            TrainStop(station_id="SBC", arrival_mins=0, departure_mins=10),      # km 0.0
+            TrainStop(station_id="WFD", arrival_mins=40, departure_mins=45),    # km 23.6
+            TrainStop(station_id="BWT", arrival_mins=90, departure_mins=95),    # km 73.5
+            TrainStop(station_id="JTJ", arrival_mins=180, departure_mins=185),  # km 145.0
+        ]
+    )
+
+    sched_down = TrainSchedule(
+        train_id="TEST_DOWN",
+        type="Express",
+        direction="Down",
+        stops=[
+            TrainStop(station_id="JTJ", arrival_mins=50, departure_mins=55),    # km 145.0
+            TrainStop(station_id="BWT", arrival_mins=120, departure_mins=125),  # km 73.5
+            TrainStop(station_id="WFD", arrival_mins=170, departure_mins=175),  # km 23.6
+            TrainStop(station_id="SBC", arrival_mins=210, departure_mins=215),  # km 0.0
+        ]
+    )
+
+    # Station exact points
+    assert interpolate_train_time(sched_up, 0.0) == 10   # At/before first stop departure
+    assert interpolate_train_time(sched_up, 145.0) == 180 # At last stop arrival
+    assert interpolate_train_time(sched_down, 145.0) == 55 # Down departure at JTJ
+    assert interpolate_train_time(sched_down, 0.0) == 210  # Down arrival at SBC
+
+    # Out of bounds
+    assert interpolate_train_time(sched_up, -10.0) == 10
+    assert interpolate_train_time(sched_up, 200.0) == 180
+    assert interpolate_train_time(sched_down, -10.0) == 210
+    assert interpolate_train_time(sched_down, 200.0) == 55
+
+    # Intermediate linear interpolation
+    # Up: between SBC (dep=10, km=0) and WFD (arr=40, km=23.6): mid = 11.8 km -> 10 + int(0.5 * 30) = 25
+    t_mid_up = interpolate_train_time(sched_up, 11.8)
+    assert t_mid_up == 25
+
+    # Down: between JTJ (dep=55, km=145) and BWT (arr=120, km=73.5): mid = 109.25 km -> 55 + int(0.5 * 65) = 87
+    t_mid_down = interpolate_train_time(sched_down, 109.25)
+    assert t_mid_down == 87
+
+
+
 
