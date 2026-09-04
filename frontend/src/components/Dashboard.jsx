@@ -44,7 +44,7 @@ export default function Dashboard() {
         fetchTimetables(corridor),
         fetchGoodsForecasts(corridor),
         fetchTasks(dept, corridor),
-        fetchBlocks(corridor).catch(() => []),
+        fetchBlocks(corridor, dept).catch(() => []),
         fetchLatestOptimizationRun(corridor).catch(() => null),
       ]);
       setData(prev => ({
@@ -195,11 +195,11 @@ export default function Dashboard() {
               <select
                 value={selectedCorridor}
                 onChange={(e) => setSelectedCorridor(e.target.value)}
-                className="bg-rail-navy border border-white/30 text-white text-xs rounded px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-rail-saffron cursor-pointer font-medium"
+                className="bg-transparent text-white font-semibold text-lg focus:outline-none appearance-none cursor-pointer border-b border-dashed border-white/40 pb-1"
               >
-                <option value="SBC-JTJ">SBC-JTJ: Bengaluru → Jolarpettai (145 km)</option>
-                <option value="NDLS-CNB">NDLS-CNB: New Delhi → Kanpur (440 km)</option>
-                <option value="CSTM-PUNE">CSTM-PUNE: Mumbai CST → Pune (192 km)</option>
+                <option className="text-gray-900 bg-white" value="SBC-JTJ">SBC-JTJ: Bengaluru → Jolarpettai (145 km)</option>
+                <option className="text-gray-900 bg-white" value="NDLS-CNB">NDLS-CNB: New Delhi → Kanpur (440 km)</option>
+                <option className="text-gray-900 bg-white" value="CSTM-PUNE">CSTM-PUNE: Mumbai CST → Pune (192 km)</option>
               </select>
               <div className="text-[10px] text-rail-saffron bg-white/10 px-2 py-0.5 rounded inline-block mt-1">
                 {selectedCorridor === 'SBC-JTJ' && 'Double Line Electrified Trunk (SWR/SR)'}

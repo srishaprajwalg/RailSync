@@ -169,8 +169,10 @@ def build_training_dataset_from_db(db: Session) -> Tuple[np.ndarray, np.ndarray,
             return dt.replace(tzinfo=datetime.timezone.utc)
         return dt
 
+    asset_map = {a.id: a for a in db.query(Asset).all()}
+    
     for event in history_records:
-        asset = db.query(Asset).filter_by(id=event.asset_id).first() if event.asset_id else None
+        asset = asset_map.get(event.asset_id)
         obs_time = _to_utc(event.started_at or event.created_at)
         
         # Query prior history on the same asset strictly before obs_time (No Leakage)

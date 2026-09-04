@@ -184,7 +184,8 @@ def generate_mock_tasks(corridor_id: str = "SBC-JTJ", stations: List[Station] = 
                 end_km=float(start_km + random.randint(1, 5)),
                 duration_mins=random.choice([120, 180, 240]),
                 deadline_mins=get_deadline(),
-                line_direction=random.choice(directions)
+                line_direction=random.choice(directions),
+                required_resource="Track Machine (BCM)" if origin == "Routine Maintenance" else "Engineering Welding Crew"
             ))
             
         # TDMS (Traction)
@@ -205,7 +206,8 @@ def generate_mock_tasks(corridor_id: str = "SBC-JTJ", stations: List[Station] = 
                 end_km=float(start_km + random.randint(2, 8)),
                 duration_mins=90,
                 deadline_mins=get_deadline(),
-                line_direction=random.choice(directions)
+                line_direction=random.choice(directions),
+                required_resource="Tower Wagon" if origin == "Routine Maintenance" else "OHE Breakdown Team"
             ))
             
         # SMMS (Signalling)
@@ -226,7 +228,8 @@ def generate_mock_tasks(corridor_id: str = "SBC-JTJ", stations: List[Station] = 
                 end_km=station.chainage_km + 0.5,
                 duration_mins=60,
                 deadline_mins=get_deadline(),
-                line_direction=random.choice(directions)
+                line_direction=random.choice(directions),
+                required_resource="Signal Maintenance Crew"
             ))
             
         return tasks
@@ -254,7 +257,7 @@ def generate_mock_tasks(corridor_id: str = "SBC-JTJ", stations: List[Station] = 
         severity = random.randint(3, 5) if origin == "Defect" else random.randint(1, 3)
         overdue = random.randint(0, 30) if origin == "Routine Maintenance" else random.randint(0, 5)
         tasks.append(MaintenanceTask(
-            id=f"TMS_{prefix}_{i}",
+            id=f"{prefix}_TMS_{i}",
             department="TMS",
             task_type="Track Tamping" if origin == "Routine Maintenance" else "Rail Fracture Repair",
             origin=origin,
@@ -265,7 +268,8 @@ def generate_mock_tasks(corridor_id: str = "SBC-JTJ", stations: List[Station] = 
             end_km=float(start_km + random.randint(1, 5)),
             duration_mins=random.choice([120, 180, 240]),
             deadline_mins=get_deadline(),
-            line_direction=random.choice(directions)
+            line_direction=random.choice(directions),
+            required_resource="Track Machine (BCM)" if origin == "Routine Maintenance" else "Engineering Welding Crew"
         ))
 
     # TDMS (Traction)
@@ -275,7 +279,7 @@ def generate_mock_tasks(corridor_id: str = "SBC-JTJ", stations: List[Station] = 
         severity = random.randint(3, 5) if origin == "Defect" else random.randint(1, 3)
         overdue = random.randint(0, 15) if origin == "Routine Maintenance" else random.randint(0, 2)
         tasks.append(MaintenanceTask(
-            id=f"TDMS_{prefix}_{i}",
+            id=f"{prefix}_TDMS_{i}",
             department="TDMS",
             task_type="OHE Maintenance" if origin == "Routine Maintenance" else "Insulator Flashover",
             origin=origin,
@@ -286,7 +290,8 @@ def generate_mock_tasks(corridor_id: str = "SBC-JTJ", stations: List[Station] = 
             end_km=float(start_km + random.randint(2, 8)),
             duration_mins=90,
             deadline_mins=get_deadline(),
-            line_direction=random.choice(directions)
+            line_direction=random.choice(directions),
+            required_resource="Tower Wagon" if origin == "Routine Maintenance" else "OHE Breakdown Team"
         ))
 
     # SMMS (Signalling)
@@ -296,7 +301,7 @@ def generate_mock_tasks(corridor_id: str = "SBC-JTJ", stations: List[Station] = 
         severity = random.randint(4, 5) if origin == "Defect" else random.randint(1, 4)
         overdue = random.randint(0, 20) if origin == "Routine Maintenance" else 0
         tasks.append(MaintenanceTask(
-            id=f"SMMS_{prefix}_{i}",
+            id=f"{prefix}_SMMS_{i}",
             department="SMMS",
             task_type="Point Overhaul" if origin == "Routine Maintenance" else "Signal Failure",
             origin=origin,
@@ -307,7 +312,8 @@ def generate_mock_tasks(corridor_id: str = "SBC-JTJ", stations: List[Station] = 
             end_km=min(total_km or 145.0, station.chainage_km + 0.5),
             duration_mins=60,
             deadline_mins=get_deadline(),
-            line_direction=random.choice(directions)
+            line_direction=random.choice(directions),
+            required_resource="Signal Maintenance Crew"
         ))
 
     return tasks

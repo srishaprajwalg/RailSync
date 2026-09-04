@@ -50,7 +50,12 @@ export default function CorridorTimeline({ corridor, timetables, forecasts, bloc
     <div className="bg-white border border-rail-border rounded-lg shadow-sm">
       <div className="p-4 border-b border-gray-100 bg-gray-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h3 className="text-lg font-bold text-gray-800">Time-Distance Visualization</h3>
+          <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+            Time-Distance Visualization
+            <span className="text-[10px] font-bold uppercase tracking-wider bg-green-100 text-green-800 px-2 py-0.5 rounded">
+              Post-Optimization (Latest Plan)
+            </span>
+          </h3>
           <p className="text-xs text-gray-500 max-w-md mt-1">
             See exactly when and where trains are moving, and where maintenance blocks have been safely scheduled between them.
           </p>
@@ -209,6 +214,23 @@ export default function CorridorTimeline({ corridor, timetables, forecasts, bloc
                   strokeWidth="1"
                   rx="1"
                 />
+                {!isPointTask && rectH > 10 && w > 30 && (
+                  <text 
+                    x={x1 + 4} 
+                    y={rectY + 12} 
+                    fontSize="9" 
+                    fill="#fff" 
+                    fontWeight="bold"
+                    clipPath={`url(#clip-${block.id})`}
+                  >
+                    {block.assigned_tasks && block.assigned_tasks.length > 1 ? "Multi-Task" : "Task"}
+                  </text>
+                )}
+                <defs>
+                  <clipPath id={`clip-${block.id}`}>
+                    <rect x={x1} y={isPointTask ? rectY - 3 : rectY} width={w} height={isPointTask ? 6 : rectH} />
+                  </clipPath>
+                </defs>
               </g>
             );
           })}

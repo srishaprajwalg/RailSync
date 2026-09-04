@@ -163,6 +163,20 @@ The persistence layer is built on **PostgreSQL** with **PostGIS** spatial capabi
 ### Model Architecture
 The failure risk component uses **Logistic Regression** (implemented via `scikit-learn`) to estimate the probability of defect recurrence on a given asset.
 
+### Train the ML Engine (Optional)
+
+RailVyuha features a legitimate **Machine Learning Pipeline** for predicting asset degradation and failure recurrence risk. The application does *not* use a random number generator for its predictions; instead, it utilizes a Logistic Regression model trained on historical maintenance data.
+
+The ML predictor extracts an 8-dimensional canonical feature vector from PostgreSQL `MaintenanceHistory` (strictly checking for observation windows to prevent data leakage) and outputs a probabilistic risk classification.
+
+To retrain the ML model dynamically based on current database records, run the training pipeline:
+```bash
+# From within the /backend directory
+PYTHONPATH=. venv/bin/python services/ml_training_pipeline.py
+```
+
+## 7. Troubleshooting
+
 ### Feature Specification (`FEATURE_VERSION = "recurrence_features_v2"`)
 Both offline training (`backend/services/ml_training_pipeline.py`) and online inference (`backend/services/ml_engine.py`) use an identical 8-dimensional feature vector:
 

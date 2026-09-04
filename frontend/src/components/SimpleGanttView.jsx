@@ -85,42 +85,36 @@ export default function SimpleGanttView({ corridor, timetables, forecasts, block
   }, [filteredSchedules, filteredBlocks]);
 
   // Pack events into lanes (rows) to prevent massive vertical scrolling
-  const { trainLanes, blockLanes } = useMemo(() => {
-    const packIntoLanes = (items) => {
-      const lanes = [];
-      items.forEach(item => {
-        let placed = false;
-        for (let i = 0; i < lanes.length; i++) {
-          const lastItem = lanes[i][lanes[i].length - 1];
-          // add a small 5 min visual buffer between items in the same lane
-          if (lastItem.endMins + 5 <= item.startMins) {
-            lanes[i].push(item);
-            placed = true;
-            break;
-          }
+  const unifiedLanes = useMemo(() => {
+    const lanes = [];
+    allEvents.forEach(item => {
+      let placed = false;
+      for (let i = 0; i < lanes.length; i++) {
+        const lastItem = lanes[i][lanes[i].length - 1];
+        // add a small 5 min visual buffer between items in the same lane
+        if (lastItem.endMins + 5 <= item.startMins) {
+          lanes[i].push(item);
+          placed = true;
+          break;
         }
-        if (!placed) lanes.push([item]);
-      });
-      return lanes;
-    };
-    
-    return {
-      trainLanes: packIntoLanes(allEvents.filter(e => e.type === 'train')),
-      blockLanes: packIntoLanes(allEvents.filter(e => e.type === 'block'))
-    };
+      }
+      if (!placed) lanes.push([item]);
+    });
+    return lanes;
   }, [allEvents]);
   
   // Helper to render a lane
-  const renderLane = (lane, index, isBlock) => (
-    <div key={`${isBlock ? 'block' : 'train'}-lane-${index}`} className="flex items-center hover:bg-gray-50 group border-b border-gray-100/50 min-h-[36px]">
+  const renderLane = (lane, index) => (
+    <div key={`unified-lane-${index}`} className="flex items-center hover:bg-gray-50 group border-b border-gray-100/50 min-h-[36px]">
       <div className="w-32 shrink-0 text-xs font-medium text-gray-500 truncate pr-2 border-r border-gray-100 flex items-center h-full">
-        {isBlock ? `Block Lane ${index + 1}` : `Train Lane ${index + 1}`}
+        {`Lane ${index + 1}`}
       </div>
       <div className="flex-1 relative h-full">
         {lane.map(evt => {
           const startPct = Math.max(0, ((evt.startMins - timeWindow.start) / windowDuration) * 100);
           const endPct = Math.min(100, ((evt.endMins - timeWindow.start) / windowDuration) * 100);
           const widthPct = endPct - startPct;
+          const isBlock = evt.type === 'block';
           
           if (widthPct <= 0) return null;
           
@@ -172,7 +166,7 @@ export default function SimpleGanttView({ corridor, timetables, forecasts, block
       
       <div className="px-5 py-3 border-b border-gray-100 flex items-start gap-2 bg-blue-50/30">
         <Info className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
-        <p className="text-[11px] text-gray-600">
+        <p className="text-[10px] text-gray-600">
           <strong>How to read this chart:</strong> Shows the exact overlapping timeline of trains and maintenance. Blocks are scheduled between train movements.
         </p>
       </div>
@@ -205,25 +199,10 @@ export default function SimpleGanttView({ corridor, timetables, forecasts, block
               </div>
             </div>
             
-            {/* Maintenance Blocks Section */}
-            {blockLanes.length > 0 && (
-              <div className="bg-orange-50/30">
-                <div className="text-xs font-bold text-orange-800 uppercase tracking-wider py-2 px-3 border-b border-orange-100/50 bg-orange-100/50 sticky left-0">
-                  Scheduled Blocks
-                </div>
-                {blockLanes.map((lane, idx) => renderLane(lane, idx, true))}
-              </div>
-            )}
-
-            {/* Train Operations Section */}
-            {trainLanes.length > 0 && (
-              <div className="bg-slate-50/30">
-                <div className="text-xs font-bold text-slate-700 uppercase tracking-wider py-2 px-3 border-b border-slate-200/50 bg-slate-200/50 sticky left-0">
-                  Train Operations
-                </div>
-                {trainLanes.map((lane, idx) => renderLane(lane, idx, false))}
-              </div>
-            )}
+            {/* Lanes content */}
+            <div className="relative z-10 flex flex-col">
+              {unifiedLanes.map((lane, i) => renderLane(lane, i))}
+            </div>
           </div>
         )}
       </div>

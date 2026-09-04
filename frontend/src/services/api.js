@@ -146,8 +146,11 @@ export const queryLocation = async (chainage = 76.5, radius_km = 5.0, corridor_i
   return response.json();
 };
 
-export const fetchBlocks = async (corridor_id = 'SBC-JTJ') => {
-  const url = corridor_id ? `${API_BASE_URL}/blocks?corridor_id=${encodeURIComponent(corridor_id)}` : `${API_BASE_URL}/blocks`;
+export const fetchBlocks = async (corridor_id = 'SBC-JTJ', department = 'ALL') => {
+  let url = corridor_id ? `${API_BASE_URL}/blocks?corridor_id=${encodeURIComponent(corridor_id)}` : `${API_BASE_URL}/blocks?`;
+  if (department && department !== 'ALL') {
+    url += `&department=${encodeURIComponent(department)}`;
+  }
   const response = await fetch(url);
   if (!response.ok) throw new Error('Failed to fetch planned blocks');
   return response.json();

@@ -146,6 +146,12 @@ TASK_DEFAULTS = {
 
 def _db_request_to_schema(r: MaintenanceRequest) -> MaintenanceTask:
     dept_disp = DEPT_DISPLAY_MAP.get(r.department, r.department)
+    explanation = f"Priority {r.priority_category} (Score: {r.priority_score})"
+    if getattr(r, "priority_decisions", None) and len(r.priority_decisions) > 0:
+        latest_dec = r.priority_decisions[-1]
+        if latest_dec.reasoning:
+            explanation = latest_dec.reasoning
+
     return MaintenanceTask(
         id=r.id,
         department=dept_disp,
@@ -165,7 +171,7 @@ def _db_request_to_schema(r: MaintenanceRequest) -> MaintenanceTask:
         priority_details=PriorityDetails(
             score=r.priority_score,
             category=r.priority_category,
-            explanation=f"Priority {r.priority_category} (Score: {r.priority_score})",
+            explanation=explanation,
         ),
         lifecycle_status=r.status,
         rejection_reason=r.description if (r.status in ("Infeasible", "Deferred") and r.description) else None,
@@ -380,7 +386,8 @@ def get_tasks(
     if status:
         query = query.filter(MaintenanceRequest.status == status)
 
-    requests = query.order_by(MaintenanceRequest.priority_score.desc()).all()
+    from sqlalchemy.orm import selectinload
+    requests = query.options(selectinload(MaintenanceRequest.priority_decisions)).order_by(MaintenanceRequest.priority_score.desc()).all()
     return [_db_request_to_schema(r) for r in requests]
 
 @app.get("/api/tasks/defaults")
@@ -579,7 +586,8 @@ def run_optimization(request: OptimizeRequest = OptimizeRequest(), db: Session =
 
     # 1. Fetch active tasks, schedules, and forecasts from DB
     t_fetch_start = time.time()
-    db_requests = db.query(MaintenanceRequest).filter(
+    from sqlalchemy.orm import selectinload
+    db_requests = db.query(MaintenanceRequest).options(selectinload(MaintenanceRequest.priority_decisions)).filter(
         MaintenanceRequest.corridor_id == request.corridor_id,
         MaintenanceRequest.status.notin_(["Completed", "COMPLETED", "CANCELLED"])
     ).all()
@@ -664,15 +672,21 @@ def run_optimization(request: OptimizeRequest = OptimizeRequest(), db: Session =
             )
             block_tasks_to_add.append(bt)
 
-            # Record schedule decision with verified constraints
+            # Look up actual task priority details
+            t_req = next((req for req in db_requests if req.id == t_id), None)
+            priority_str = f"Score {t_req.priority_score} ({t_req.priority_category})" if t_req else "Score N/A"
+            ml_risk = "N/A"
+            if t_req and getattr(t_req, 'priority_decisions', None) and len(t_req.priority_decisions) > 0:
+                ml_risk = f"{t_req.priority_decisions[-1].ml_risk_score} pts"
+
             sched_dec = ScheduleDecision(
                 id=f"SCD-{uuid.uuid4().hex[:8].upper()}",
                 block_id=blk.id,
                 maintenance_request_id=t_id,
                 selected_start_mins=blk.start_time_mins,
                 selected_end_mins=blk.end_time_mins,
-                why_selected=f"Assigned to safe gap window (Mins {blk.start_time_mins}–{blk.end_time_mins}, Day {blk.start_time_mins//1440}) with ±15-min train clearance buffers",
-                train_constraints=f"Zero conflicting passenger or freight train occupancies in corridor Km {blk.start_km:.1f}–{blk.end_km:.1f} during interval",
+                why_selected=f"Task {t_id} (Priority: {priority_str}, ML Risk: {ml_risk}) assigned to gap (Mins {blk.start_time_mins}–{blk.end_time_mins}, Day {blk.start_time_mins//1440})",
+                train_constraints=f"Zero conflicting trains for Km {blk.start_km:.1f}–{blk.end_km:.1f} (±15m safety margin)",
                 spatial_constraints=f"Spans corridor Km {blk.start_km:.1f} to {blk.end_km:.1f} ({blk.end_km - blk.start_km:.1f} km span)",
                 department_coordination="Multi-department consolidated block" if len(blk.assigned_tasks) > 1 else "Standalone single activity block",
                 solver_reason="CP-SAT Optimal Interval Assignment",
@@ -747,7 +761,11 @@ def run_optimization(request: OptimizeRequest = OptimizeRequest(), db: Session =
     }
 
 @app.get("/api/blocks", response_model=List[PlannedBlock])
-def get_blocks(corridor_id: Optional[str] = Query(None, description="Corridor ID"), db: Session = Depends(get_db)):
+def get_blocks(
+    corridor_id: Optional[str] = Query(None, description="Corridor ID"),
+    department: Optional[str] = Query(None, description="Department Scope"),
+    db: Session = Depends(get_db)
+):
     """Returns the latest planned blocks from database for the specified corridor."""
     cid = corridor_id if isinstance(corridor_id, str) else None
     query = db.query(OptimizationRun)
@@ -759,10 +777,19 @@ def get_blocks(corridor_id: Optional[str] = Query(None, description="Corridor ID
 
     db_blocks = (
         db.query(PlannedBlockModel)
-        .options(selectinload(PlannedBlockModel.block_tasks))
+        .options(selectinload(PlannedBlockModel.block_tasks).joinedload(BlockTask.maintenance_request))
         .filter_by(optimization_run_id=latest_run.id)
         .all()
     )
+
+    filtered_blocks = []
+    for b in db_blocks:
+        if department and department != "ALL":
+            has_dept = any(bt.maintenance_request.department == department for bt in b.block_tasks if bt.maintenance_request)
+            if not has_dept:
+                continue
+        filtered_blocks.append(b)
+
     return [
         PlannedBlock(
             id=b.id,
@@ -774,7 +801,7 @@ def get_blocks(corridor_id: Optional[str] = Query(None, description="Corridor ID
             assigned_tasks=[bt.maintenance_request_id for bt in b.block_tasks],
             reasoning=b.reasoning,
         )
-        for b in db_blocks
+        for b in filtered_blocks
     ]
 
 @app.get("/api/blocks/{block_id}/decisions", response_model=List[ScheduleDecisionOut])

@@ -8,16 +8,24 @@ export default function AnalyticsDashboard({ tasks, blocks, taskStatuses, metric
   
   // 1. Lifecycle distribution
   const lifecycleCounts = useMemo(() => {
-    const counts = { Reported: 0, Prioritized: 0, 'In Progress': 0, Completed: 0 };
+    const counts = {};
     tasks.forEach(t => {
-      if (counts[t.lifecycle_status] !== undefined) {
-        counts[t.lifecycle_status]++;
-      }
+      const status = t.lifecycle_status || 'Unknown';
+      counts[status] = (counts[status] || 0) + 1;
     });
     return Object.entries(counts).map(([name, value]) => ({ name, value })).filter(d => d.value > 0);
   }, [tasks]);
 
-  const LIFECYCLE_COLORS = { Reported: '#9ca3af', Prioritized: '#3b82f6', 'In Progress': '#f59e0b', Completed: '#10b981' };
+  const LIFECYCLE_COLORS = { 
+    'Reported': '#9ca3af', 
+    'Prioritized': '#3b82f6', 
+    'Scheduled': '#8b5cf6',
+    'Deferred': '#f59e0b',
+    'Infeasible': '#ef4444',
+    'In Progress': '#10b981', 
+    'Completed': '#059669',
+    'Unknown': '#6b7280'
+  };
 
   // 2. Department Workload
   const departmentStats = useMemo(() => {

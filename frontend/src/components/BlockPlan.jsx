@@ -176,15 +176,20 @@ export default function BlockPlan({ blocks, tasks, timeWindow }) {
                     <div className="flex justify-between items-center mb-2">
                       <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">Approved Work ({blockTasks.length})</p>
                       {isConsolidated && (
-                        <span className="text-[9px] font-bold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded uppercase">Consolidated</span>
+                        <span className="text-[9px] font-bold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded uppercase">Consolidated (Parallel)</span>
                       )}
                     </div>
-                    <ul className="space-y-2">
-                      {blockTasks.map(t => (
-                        <li key={t.id} className="flex justify-between items-start text-xs border-b border-gray-200/50 pb-2 last:border-0 last:pb-0">
+                    {isConsolidated && (
+                      <p className="text-[10px] text-gray-500 mb-2 italic bg-amber-50 p-1.5 rounded">
+                        These {blockTasks.length} tasks run <strong>concurrently</strong> within the {formatDuration(duration)} block to save {(blockTasks.reduce((acc, t) => acc + t.duration_mins, 0) - duration)} minutes of downtime.
+                      </p>
+                    )}
+                    <ul className="space-y-2 relative">
+                      {blockTasks.map((t, idx) => (
+                        <li key={t.id} className="flex justify-between items-start text-xs border-b border-gray-200/50 pb-2 last:border-0 last:pb-0 relative z-10">
                           <div className="flex flex-col gap-0.5">
                             <span className="text-gray-800 font-medium leading-tight">{t.task_type}</span>
-                            <span className="text-[10px] font-bold text-gray-500">{t.department}</span>
+                            <span className="text-[10px] font-bold text-gray-500">{t.department} • {t.required_resource || 'General Crew'}</span>
                           </div>
                           <span className="text-[10px] font-medium text-gray-500 bg-white border border-gray-200 px-1.5 py-0.5 rounded shrink-0 ml-2">
                             {t.duration_mins} min
