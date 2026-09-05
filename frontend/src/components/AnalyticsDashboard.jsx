@@ -2,19 +2,20 @@ import React, { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { Activity, CheckCircle2, Clock, AlertTriangle, Layers, Zap, MapPin } from 'lucide-react';
 
-export default function AnalyticsDashboard({ tasks, blocks, taskStatuses, metrics, corridor }) {
+export default function AnalyticsDashboard({ tasks, blocks, taskStatuses, metrics, corridor, lifecycleCounts: apiLifecycleCounts }) {
   
   // -- Data Processing for Analytics --
   
   // 1. Lifecycle distribution
   const lifecycleCounts = useMemo(() => {
+    if (apiLifecycleCounts && apiLifecycleCounts.length > 0) return apiLifecycleCounts;
     const counts = {};
     tasks.forEach(t => {
       const status = t.lifecycle_status || 'Unknown';
       counts[status] = (counts[status] || 0) + 1;
     });
     return Object.entries(counts).map(([name, value]) => ({ name, value })).filter(d => d.value > 0);
-  }, [tasks]);
+  }, [tasks, apiLifecycleCounts]);
 
   const LIFECYCLE_COLORS = { 
     'Reported': '#9ca3af', 

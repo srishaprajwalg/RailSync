@@ -92,6 +92,7 @@ class PlannedBlock(BaseModel):
 class OptimizeRequest(BaseModel):
     horizon_days: int = Field(30, ge=1, le=30, description="Planning horizon in days (1 to 30)")
     corridor_id: Optional[str] = "SBC-JTJ"
+    department: Optional[str] = "ALL"
 
 class OptimizationMetrics(BaseModel):
     total_tasks: int

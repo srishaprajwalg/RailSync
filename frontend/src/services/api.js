@@ -1,12 +1,12 @@
 const API_BASE_URL = 'http://127.0.0.1:8000/api';
 
-export const optimizeBlocks = async (horizon_days = 7, corridor_id = 'SBC-JTJ') => {
+export const optimizeBlocks = async (horizon_days = 7, corridor_id = 'SBC-JTJ', department = 'ALL') => {
   const response = await fetch(`${API_BASE_URL}/optimize`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ horizon_days, corridor_id }),
+    body: JSON.stringify({ horizon_days, corridor_id, department }),
   });
   if (!response.ok) {
     throw new Error('Failed to run optimization');
@@ -159,6 +159,16 @@ export const fetchBlocks = async (corridor_id = 'SBC-JTJ', department = 'ALL') =
 export const fetchBlockDecisions = async (blockId) => {
   const response = await fetch(`${API_BASE_URL}/blocks/${blockId}/decisions`);
   if (!response.ok) throw new Error('Failed to fetch block decisions');
+  return response.json();
+};
+
+export const fetchLifecycleCounts = async (corridor_id = 'SBC-JTJ', department = 'ALL') => {
+  let url = corridor_id ? `${API_BASE_URL}/analytics/lifecycle?corridor_id=${encodeURIComponent(corridor_id)}` : `${API_BASE_URL}/analytics/lifecycle?`;
+  if (department && department !== 'ALL') {
+    url += `&department=${encodeURIComponent(department)}`;
+  }
+  const response = await fetch(url);
+  if (!response.ok) throw new Error('Failed to fetch lifecycle counts');
   return response.json();
 };
 

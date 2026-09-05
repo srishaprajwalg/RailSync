@@ -6,7 +6,6 @@ import OutcomeLoggingModal from './OutcomeLoggingModal';
 import PriorityOverrideModal from './PriorityOverrideModal';
 
 export default function TaskTable({ tasks, blocks, taskStatuses, onUpdateStatus, onReloadTasks }) {
-  const [filterDept, setFilterDept] = useState('All');
   const [filterState, setFilterState] = useState('Active'); // Active or Completed
   const [selectedTaskForExplain, setSelectedTaskForExplain] = useState(null);
   const [selectedTaskForOutcome, setSelectedTaskForOutcome] = useState(null);
@@ -32,15 +31,9 @@ export default function TaskTable({ tasks, blocks, taskStatuses, onUpdateStatus,
     return <span className="bg-gray-100 text-gray-800 text-[10px] px-1.5 py-0.5 rounded font-bold uppercase">Low</span>;
   };
 
-  const departments = ['All', 'Engineering / Track', 'Signalling', 'Electrical / Traction'];
-
   const filteredTasks = tasks.filter(task => {
-    const deptMatch = filterDept === 'All' || task.department === filterDept || 
-      (filterDept === 'Engineering / Track' && (task.department === 'ENGINEERING' || task.department === 'TMS')) ||
-      (filterDept === 'Signalling' && (task.department === 'S&T' || task.department === 'SMMS')) ||
-      (filterDept === 'Electrical / Traction' && (task.department === 'TRACTION' || task.department === 'TDMS'));
     const stateMatch = filterState === 'Completed' ? (task.lifecycle_status === 'Completed' || task.lifecycle_status === 'COMPLETED') : (task.lifecycle_status !== 'Completed' && task.lifecycle_status !== 'COMPLETED');
-    return deptMatch && stateMatch;
+    return stateMatch;
   });
 
   return (
@@ -93,16 +86,6 @@ export default function TaskTable({ tasks, blocks, taskStatuses, onUpdateStatus,
               History & Outcomes
             </button>
           </div>
-          
-          <select 
-            value={filterDept} 
-            onChange={(e) => setFilterDept(e.target.value)}
-            className="border border-gray-300 rounded p-1.5 text-sm bg-white min-w-[170px]"
-          >
-            {departments.map(dept => (
-              <option key={dept} value={dept}>{dept === 'All' ? 'All Departments' : dept}</option>
-            ))}
-          </select>
         </div>
       </div>
       

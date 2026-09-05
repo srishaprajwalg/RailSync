@@ -115,6 +115,9 @@ else:
 connect_args = {}
 if DATABASE_URL.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
+elif "6543" in DATABASE_URL or "pooler" in DATABASE_URL:
+    # Disable prepared statements for PgBouncer transaction mode
+    connect_args = {"prepare_threshold": None}
 
 # Engine initialization
 engine = create_engine(

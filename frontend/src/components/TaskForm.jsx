@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { addTask, previewPriority, fetchTaskDefaults } from '../services/api';
 import { AlertCircle, Clock, Calendar, Activity } from 'lucide-react';
 
-export default function TaskForm({ onTaskAdded }) {
+export default function TaskForm({ onTaskAdded, corridorId }) {
   const [taskDefaults, setTaskDefaults] = useState({});
   const [formData, setFormData] = useState({
     department: 'TMS',
@@ -56,6 +56,7 @@ export default function TaskForm({ onTaskAdded }) {
           asset_criticality: Number(formData.asset_criticality),
           overdue_days: Number(formData.overdue_days) || 0,
           deadline_mins: Number(formData.deadline_mins),
+          corridor_id: corridorId,
         };
         const result = await previewPriority(payload);
         setPreview(result);
@@ -99,6 +100,7 @@ export default function TaskForm({ onTaskAdded }) {
         asset_criticality: Number(formData.asset_criticality),
         overdue_days: Number(formData.overdue_days),
         deadline_mins: Number(formData.deadline_mins),
+        corridor_id: corridorId,
       };
       const updatedTasks = await addTask(payload);
       onTaskAdded(updatedTasks);

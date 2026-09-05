@@ -41,6 +41,8 @@ def is_task_feasible_alone(
         model.AddNoOverlap([interval, t_int])
         
     solver = cp_model.CpSolver()
+    solver.parameters.num_search_workers = 1
+    solver.parameters.max_time_in_seconds = 0.2
     status = solver.Solve(model)
     return status in [cp_model.OPTIMAL, cp_model.FEASIBLE]
 
@@ -166,6 +168,7 @@ def optimize_blocks(
 
     # Solve
     solver = cp_model.CpSolver()
+    solver.parameters.num_search_workers = 4
     solver.parameters.max_time_in_seconds = 10.0 # Time limit for CP
     t_solve_start = time.time()
     status = solver.Solve(model)

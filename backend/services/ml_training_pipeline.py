@@ -4,7 +4,10 @@ import datetime
 import joblib
 import numpy as np
 from typing import Dict, Any, List, Optional, Tuple
+from collections import defaultdict
 from sqlalchemy.orm import Session
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     precision_score,
@@ -15,7 +18,6 @@ from sklearn.metrics import (
     confusion_matrix,
     accuracy_score,
 )
-from sklearn.model_selection import StratifiedKFold
 
 from backend.db.models import Asset, MaintenanceHistory, MaintenanceRequest
 
@@ -60,7 +62,7 @@ def extract_canonical_features(
     failures = [h for h in history_prior_to_t if h.failure or h.recurrence]
     failure_count = len(failures)
     recurrence_count = sum(1 for h in history_prior_to_t if h.recurrence)
-    
+
     rec_ratio = (recurrence_count / total_prior_events) if total_prior_events > 0 else 0.0
     avg_duration_hrs = (
         sum(h.duration_minutes for h in history_prior_to_t) / (total_prior_events * 60.0)
@@ -133,7 +135,7 @@ def get_bootstrap_calibration_dataset() -> Tuple[np.ndarray, np.ndarray, Dict[st
         [14.0, 4.0, 3.0, 0.67, 3.0, 30.0, 4.0, 1.0],   # High risk (1)
     ])
     y_train = np.array([0, 0, 0, 1, 1, 1, 0, 1, 0, 1])
-    
+
     meta = {
         "dataset_name": "BOOTSTRAP_SYNTHETIC_CALIBRATION",
         "sample_count": len(y_train),
@@ -155,7 +157,7 @@ def build_training_dataset_from_db(db: Session) -> Tuple[np.ndarray, np.ndarray,
     to strictly prevent target leakage.
     """
     history_records = db.query(MaintenanceHistory).order_by(MaintenanceHistory.created_at.asc()).all()
-    
+
     if not history_records:
         return np.empty((0, 8)), np.empty(0), {"sample_count": 0, "status": "NO_HISTORICAL_DATA"}
 
@@ -170,18 +172,32 @@ def build_training_dataset_from_db(db: Session) -> Tuple[np.ndarray, np.ndarray,
         return dt
 
     asset_map = {a.id: a for a in db.query(Asset).all()}
-    
+
+    # Pre-group all events chronologically by asset for fast lookups
+    asset_events = defaultdict(list)
+    for h in history_records:
+        if h.asset_id:
+            t = _to_utc(h.completed_at or h.created_at)
+            asset_events[h.asset_id].append((t, h))
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+
     for event in history_records:
         asset = asset_map.get(event.asset_id)
-        obs_time = _to_utc(event.started_at or event.created_at)
-        
+        # Using completed_at as observation time T for safety (event is truly finished)
+        obs_time = _to_utc(event.completed_at or event.created_at)
+
+        # Censoring: exclude events where T + 90 days is in the future
+        if obs_time + datetime.timedelta(days=90) > now:
+            continue
+
         # Query prior history on the same asset strictly before obs_time (No Leakage)
         prior_history = [
-            h for h in history_records
-            if h.asset_id == event.asset_id and _to_utc(h.completed_at or h.created_at) < obs_time and h.id != event.id
+            h for t, h in asset_events[event.asset_id]
+            if t < obs_time and h.id != event.id
         ]
-        
-        # Severity and defect classification derived from event
+
+        # Severity and defect classification derived from the event itself (Known at T)
         is_def = 1 if event.event_type.upper() in ("CORRECTIVE", "EMERGENCY") else 0
         sev = 5 if event.event_type.upper() == "EMERGENCY" else (3 if is_def else 1)
 
@@ -192,9 +208,14 @@ def build_training_dataset_from_db(db: Session) -> Tuple[np.ndarray, np.ndarray,
             is_defect=is_def,
             observation_time=obs_time,
         )
-        
-        # Target label: 1 if recurrent/failure event, 0 otherwise
-        target = 1 if (event.recurrence or event.failure) else 0
+
+        # Genuine Future Target: 1 if the SAME asset has a qualifying failure/recurrence event strictly AFTER T and <= T + 90 days
+        target = 0
+        for future_t, future_h in asset_events[event.asset_id]:
+            if obs_time < future_t <= obs_time + datetime.timedelta(days=90):
+                if future_h.failure or future_h.recurrence:
+                    target = 1
+                    break
 
         X_list.append(feat_dict["feature_vector"])
         y_list.append(target)
@@ -222,10 +243,10 @@ def build_training_dataset_from_db(db: Session) -> Tuple[np.ndarray, np.ndarray,
 def evaluate_model_and_baselines(
     X: np.ndarray,
     y: np.ndarray,
-    model: LogisticRegression,
+    model: Pipeline,
 ) -> Dict[str, Any]:
     """
-    Evaluates Logistic Regression against:
+    Evaluates model against:
     1. Majority-Class Baseline
     2. Deterministic Rule Heuristic (Defect + Severity >= 4 + Past Failures >= 1)
     """
@@ -243,51 +264,37 @@ def evaluate_model_and_baselines(
             "baseline_comparison": None,
         }
 
-    # Stratified K-Fold validation
-    k_folds = min(5, min(n_pos, n_neg))
-    skf = StratifiedKFold(n_splits=k_folds, shuffle=True, random_state=42)
+    # Chronological validation: train on earliest 80%, test on latest 20%
+    # (X, y are chronologically ordered by how history_records is built)
+    split_idx = int(0.8 * n_samples)
+    X_train, X_val = X[:split_idx], X[split_idx:]
+    y_train, y_val = y[:split_idx], y[split_idx:]
 
-    y_true_all = []
-    y_pred_all = []
-    y_prob_all = []
-    y_majority_all = []
-    y_heuristic_all = []
+    majority_class = 1 if int(np.sum(y_train == 1)) >= int(np.sum(y_train == 0)) else 0
 
-    # Majority class on full dataset
-    majority_class = 1 if n_pos >= n_neg else 0
+    model.fit(X_train, y_train)
 
-    for train_idx, val_idx in skf.split(X, y):
-        X_tr, X_val = X[train_idx], X[val_idx]
-        y_tr, y_val = y[train_idx], y[val_idx]
+    probs = model.predict_proba(X_val)[:, 1]
+    preds = model.predict(X_val)
 
-        fold_clf = LogisticRegression(random_state=42)
-        fold_clf.fit(X_tr, y_tr)
+    y_true_np = y_val
+    y_pred_np = preds
+    y_prob_np = probs
+    y_majority_all = [majority_class] * len(y_val)
 
-        probs = fold_clf.predict_proba(X_val)[:, 1]
-        preds = fold_clf.predict(X_val)
-
-        y_true_all.extend(y_val)
-        y_pred_all.extend(preds)
-        y_prob_all.extend(probs)
-        y_majority_all.extend([majority_class] * len(y_val))
-
-        # Heuristic: is_defect (col 7) == 1 and sev (col 6) >= 4 and past_fails (col 2) >= 1
-        heur_preds = [
-            1 if (row[7] == 1.0 and row[6] >= 4.0 and row[2] >= 1.0) else 0
-            for row in X_val
-        ]
-        y_heuristic_all.extend(heur_preds)
-
-    y_true_np = np.array(y_true_all)
-    y_pred_np = np.array(y_pred_all)
-    y_prob_np = np.array(y_prob_all)
+    # Heuristic: is_defect (col 7) == 1 and sev (col 6) >= 4 and past_fails (col 2) >= 1
+    heur_preds = [
+        1 if (row[7] == 1.0 and row[6] >= 4.0 and row[2] >= 1.0) else 0
+        for row in X_val
+    ]
+    y_heuristic_all = np.array(heur_preds)
 
     # Compute Metrics
     acc = float(accuracy_score(y_true_np, y_pred_np))
     prec = float(precision_score(y_true_np, y_pred_np, zero_division=0))
     rec = float(recall_score(y_true_np, y_pred_np, zero_division=0))
     f1 = float(f1_score(y_true_np, y_pred_np, zero_division=0))
-    
+
     try:
         roc_auc = float(roc_auc_score(y_true_np, y_prob_np))
     except Exception:
@@ -306,8 +313,11 @@ def evaluate_model_and_baselines(
     heur_acc = float(accuracy_score(y_true_np, y_heuristic_all))
 
     return {
-        "validation_status": "VALIDATED_STRATIFIED_KFOLD",
-        "k_folds": k_folds,
+        "validation_status": "VALIDATED_CHRONOLOGICAL_HOLDOUT",
+        "split_ratio": "80/20",
+        "training_sample_count": split_idx,
+        "validation_sample_count": len(y_val),
+        "validation_class_distribution": {"positive": int(np.sum(y_val == 1)), "negative": int(np.sum(y_val == 0))},
         "sample_count": n_samples,
         "class_distribution": {"positive": n_pos, "negative": n_neg},
         "metrics": {
@@ -356,8 +366,11 @@ def train_recurrence_model(
 
     model_version = MODEL_VERSION_BOOTSTRAP if used_bootstrap else MODEL_VERSION_DB
 
-    # Train final classifier
-    clf = LogisticRegression(random_state=42)
+    # Train final classifier with standard scaling
+    clf = Pipeline([
+        ('scaler', StandardScaler()),
+        ('classifier', LogisticRegression(random_state=42, max_iter=500))
+    ])
     clf.fit(X_train, y_train)
 
     # Evaluate
@@ -401,13 +414,13 @@ def train_recurrence_model(
         "validation": val_report,
     }
 
-def load_persisted_model(model_path: str = DEFAULT_MODEL_PATH) -> Tuple[LogisticRegression, Dict[str, Any]]:
+def load_persisted_model(model_path: str = DEFAULT_MODEL_PATH) -> Tuple[Pipeline, Dict[str, Any]]:
     """
     Loads persisted model and metadata from joblib artifact.
     If no artifact exists, trains and saves the baseline model first.
     """
     if not os.path.exists(model_path):
         train_recurrence_model(model_save_path=model_path)
-    
+
     payload = joblib.load(model_path)
     return payload["model"], payload["metadata"]

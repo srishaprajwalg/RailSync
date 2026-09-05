@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { fetchCorridor, fetchTimetables, fetchTasks, fetchGoodsForecasts, optimizeBlocks, updateTaskStatus, fetchBlocks, fetchLatestOptimizationRun } from '../services/api';
+import { fetchCorridor, fetchTimetables, fetchTasks, fetchGoodsForecasts, optimizeBlocks, updateTaskStatus, fetchBlocks, fetchLatestOptimizationRun, fetchLifecycleCounts } from '../services/api';
 import KPICards from './KPICards';
 import BlockPlan from './BlockPlan';
 import CorridorTimeline from './CorridorTimeline';
@@ -13,7 +13,7 @@ import { Train, Activity, AlertTriangle, Settings, Sliders, LayoutList, Trending
 export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [optimizing, setOptimizing] = useState(false);
-  const [viewMode, setViewMode] = useState('Month'); // Month, Week, Day
+  const [viewMode, setViewMode] = useState('Week'); // Week, Day
   const [selectedWeek, setSelectedWeek] = useState(1);
   const [selectedDay, setSelectedDay] = useState(1);
   const [viewType, setViewType] = useState('technical'); // technical, simple
@@ -28,6 +28,7 @@ export default function Dashboard() {
     blocks: [],
     metrics: null,
     task_statuses: {},
+    lifecycle_counts: [],
   });
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('analytics'); // setup, control, action, analytics
@@ -39,13 +40,14 @@ export default function Dashboard() {
   const loadInitialData = async (dept = 'ALL', corridor = selectedCorridor) => {
     try {
       setLoading(true);
-      const [corridorData, timetables, forecasts, tasks, blocks, latestRun] = await Promise.all([
+      const [corridorData, timetables, forecasts, tasks, blocks, latestRun, lifecycleCounts] = await Promise.all([
         fetchCorridor(corridor),
         fetchTimetables(corridor),
         fetchGoodsForecasts(corridor),
         fetchTasks(dept, corridor),
         fetchBlocks(corridor, dept).catch(() => []),
         fetchLatestOptimizationRun(corridor).catch(() => null),
+        fetchLifecycleCounts(corridor, dept).catch(() => []),
       ]);
       setData(prev => ({
         ...prev,
@@ -55,6 +57,7 @@ export default function Dashboard() {
         tasks,
         blocks: blocks || [],
         metrics: latestRun?.metrics || null,
+        lifecycle_counts: lifecycleCounts,
       }));
       setLoading(false);
     } catch (err) {
@@ -66,7 +69,7 @@ export default function Dashboard() {
   const handleOptimize = async () => {
     try {
       setOptimizing(true);
-      const result = await optimizeBlocks(30, selectedCorridor); // 30 days backend optimization
+      const result = await optimizeBlocks(7, selectedCorridor, selectedDept); // 7 days backend optimization
       setData(prev => ({
         ...prev,
         blocks: result.blocks,
@@ -82,10 +85,9 @@ export default function Dashboard() {
 
   // Compute time window
   const getWindowMins = () => {
-    if (viewMode === 'Month') return { start: 0, end: 30 * 1440 };
     if (viewMode === 'Week') return { start: (selectedWeek - 1) * 7 * 1440, end: selectedWeek * 7 * 1440 };
     if (viewMode === 'Day') return { start: (selectedDay - 1) * 1440, end: selectedDay * 1440 };
-    return { start: 0, end: 30 * 1440 };
+    return { start: 0, end: 7 * 1440 };
   };
   const timeWindow = getWindowMins();
 
@@ -119,25 +121,25 @@ export default function Dashboard() {
     const blocks_created = filteredBlocks.length;
     let total_block_minutes = 0;
     const windowTasks = new Set();
-    
+
     filteredBlocks.forEach(b => {
       total_block_minutes += (b.end_time_mins - b.start_time_mins);
       b.assigned_tasks.forEach(t => windowTasks.add(t));
     });
-    
+
     const planned_tasks = windowTasks.size;
     let total_requested_mins = 0;
-    
+
     windowTasks.forEach(tId => {
       const t = data.tasks.find(tsk => tsk.id === tId);
       if (t) total_requested_mins += t.duration_mins;
     });
-    
+
     let downtime_reduction_pct = 0;
     if (total_requested_mins > 0) {
       downtime_reduction_pct = ((total_requested_mins - total_block_minutes) / total_requested_mins) * 100;
     }
-    
+
     return {
       ...data.metrics,
       planned_tasks,
@@ -146,7 +148,7 @@ export default function Dashboard() {
       downtime_reduction_pct,
     };
   }, [filteredBlocks, data.metrics, data.tasks]);
-  
+
   const handleStatusUpdate = async (taskId, newStatus) => {
     try {
       const updatedTasks = await updateTaskStatus(taskId, newStatus);
@@ -297,12 +299,13 @@ export default function Dashboard() {
               <h2 className="text-2xl font-bold text-rail-text-dark mb-1">Decision Intelligence</h2>
               <p className="text-rail-text-muted text-sm mb-4">Analyze workload distribution, lifecycle progress, and optimization impact.</p>
             </div>
-            <AnalyticsDashboard 
-              tasks={data.tasks} 
-              blocks={filteredBlocks} 
-              taskStatuses={data.task_statuses} 
+            <AnalyticsDashboard
+              tasks={data.tasks}
+              blocks={filteredBlocks}
+              taskStatuses={data.task_statuses}
               metrics={dynamicMetrics}
               corridor={data.corridor}
+              lifecycleCounts={data.lifecycle_counts}
             />
           </div>
         )}
@@ -314,12 +317,15 @@ export default function Dashboard() {
               <p className="text-rail-text-muted text-sm mb-4">Manage maintenance requests and view key performance indicators.</p>
             </div>
             {dynamicMetrics && <KPICards metrics={dynamicMetrics} />}
-            <TaskForm onTaskAdded={(updatedTasks) => setData((prev) => ({ ...prev, tasks: updatedTasks }))} />
+            <TaskForm
+              corridorId={selectedCorridor}
+              onTaskAdded={() => loadInitialData()}
+            />
             <div className="mt-8">
-              <TaskTable 
-                tasks={data.tasks} 
-                blocks={filteredBlocks} 
-                taskStatuses={data.task_statuses} 
+              <TaskTable
+                tasks={data.tasks}
+                blocks={filteredBlocks}
+                taskStatuses={data.task_statuses}
                 onUpdateStatus={handleStatusUpdate}
                 onReloadTasks={() => loadInitialData(selectedDept)}
               />
@@ -336,7 +342,6 @@ export default function Dashboard() {
               </div>
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
                 <div className="flex items-center gap-2 bg-white rounded shadow-sm border border-rail-border p-1">
-                  <button onClick={() => setViewMode('Month')} className={`px-3 py-1.5 text-xs font-semibold rounded ${viewMode === 'Month' ? 'bg-rail-blue text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Month</button>
                   <button onClick={() => setViewMode('Week')} className={`px-3 py-1.5 text-xs font-semibold rounded ${viewMode === 'Week' ? 'bg-rail-blue text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Week</button>
                   <button onClick={() => setViewMode('Day')} className={`px-3 py-1.5 text-xs font-semibold rounded ${viewMode === 'Day' ? 'bg-rail-blue text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Day</button>
                 </div>
@@ -361,7 +366,7 @@ export default function Dashboard() {
                   </select>
                 )}
 
-                <button 
+                <button
                   onClick={handleOptimize}
                   disabled={optimizing}
                   className={`px-6 py-2 rounded shadow-sm text-white font-medium flex items-center gap-2 transition-colors ${
@@ -378,13 +383,13 @@ export default function Dashboard() {
             {data.blocks.length > 0 && (
               <div className="flex justify-end mb-4">
                 <div className="flex bg-gray-200 rounded p-1">
-                  <button 
+                  <button
                     className={`flex items-center gap-2 px-4 py-1.5 text-xs font-semibold rounded transition-colors ${viewType === 'simple' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
                     onClick={() => setViewType('simple')}
                   >
                     <CalendarDays className="w-4 h-4" /> Simple View
                   </button>
-                  <button 
+                  <button
                     className={`flex items-center gap-2 px-4 py-1.5 text-xs font-semibold rounded transition-colors ${viewType === 'technical' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
                     onClick={() => setViewType('technical')}
                   >

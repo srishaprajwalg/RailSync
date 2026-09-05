@@ -421,7 +421,9 @@ def preview_priority(task_in: MaintenanceTaskCreate):
 @app.post("/api/maintenance", response_model=List[MaintenanceTask])
 def add_task(task_in: MaintenanceTaskCreate, db: Session = Depends(get_db)):
     """Add a new task, run ML prediction + priority scoring, persist to DB, and return updated task list."""
-    target_corridor_id = getattr(task_in, "corridor_id", None) or "SBC-JTJ"
+    target_corridor_id = getattr(task_in, "corridor_id", None)
+    if not target_corridor_id:
+        raise HTTPException(status_code=400, detail="corridor_id is required")
     dept_norm = ACTIVITY_TO_DEPT.get(task_in.task_type, "ENGINEERING")
     task_id = f"MANUAL-{uuid.uuid4().hex[:6].upper()}"
 
@@ -528,6 +530,51 @@ def get_task_history(task_id: str, db: Session = Depends(get_db)):
         for h in history
     ]
 
+@app.get("/api/analytics/lifecycle")
+def get_lifecycle_counts(
+    corridor_id: Optional[str] = Query(None, description="Corridor ID"),
+    department: Optional[str] = Query(None, description="Department Scope"),
+    db: Session = Depends(get_db)
+):
+    req_query = db.query(MaintenanceRequest)
+    if corridor_id:
+        req_query = req_query.filter(MaintenanceRequest.corridor_id == corridor_id)
+    if department and department.upper() != "ALL":
+        dept_norm = "ENGINEERING" if "ENG" in department.upper() else ("S&T" if "S&T" in department.upper() or "SIG" in department.upper() else "TRACTION")
+        req_query = req_query.filter(MaintenanceRequest.department == dept_norm)
+
+    requests = req_query.all()
+    counts = {"Pending": 0, "Scheduled": 0, "In Progress": 0, "Completed": 0, "Deferred": 0, "Infeasible": 0}
+
+    for r in requests:
+        st = r.status.capitalize() if r.status else "Pending"
+        if st in ["Open", "Prioritized"]:
+            counts["Pending"] += 1
+        elif st == "Scheduled":
+            counts["Scheduled"] += 1
+        elif st == "In progress" or st == "In Progress":
+            counts["In Progress"] += 1
+        elif st == "Completed":
+            counts["Completed"] += 1
+        elif st == "Deferred":
+            counts["Deferred"] += 1
+        elif st == "Infeasible":
+            counts["Infeasible"] += 1
+        else:
+            counts["Pending"] += 1
+
+    hist_query = db.query(MaintenanceHistory)
+    if corridor_id or (department and department.upper() != "ALL"):
+        hist_query = hist_query.join(Asset, MaintenanceHistory.asset_id == Asset.id)
+        if corridor_id:
+            hist_query = hist_query.filter(Asset.corridor_id == corridor_id)
+        if department and department.upper() != "ALL":
+            dept_norm = "ENGINEERING" if "ENG" in department.upper() else ("S&T" if "S&T" in department.upper() or "SIG" in department.upper() else "TRACTION")
+            hist_query = hist_query.filter(Asset.department == dept_norm)
+
+    counts["Completed"] += hist_query.count()
+    return [{"name": k, "value": v} for k, v in counts.items() if v > 0]
+
 @app.get("/api/predictions/{maintenance_id}", response_model=List[MLPredictionOut])
 def get_task_predictions(maintenance_id: str, db: Session = Depends(get_db)):
     """Returns ML recurrence risk predictions for a maintenance request."""
@@ -587,10 +634,13 @@ def run_optimization(request: OptimizeRequest = OptimizeRequest(), db: Session =
     # 1. Fetch active tasks, schedules, and forecasts from DB
     t_fetch_start = time.time()
     from sqlalchemy.orm import selectinload
-    db_requests = db.query(MaintenanceRequest).options(selectinload(MaintenanceRequest.priority_decisions)).filter(
+    query = db.query(MaintenanceRequest).options(selectinload(MaintenanceRequest.priority_decisions)).filter(
         MaintenanceRequest.corridor_id == request.corridor_id,
         MaintenanceRequest.status.notin_(["Completed", "COMPLETED", "CANCELLED"])
-    ).all()
+    )
+    if request.department and request.department != "ALL":
+        query = query.filter(MaintenanceRequest.department == request.department)
+    db_requests = query.all()
     tasks = [_db_request_to_schema(r) for r in db_requests]
 
     timetables = get_timetables(corridor_id=request.corridor_id, db=db)

@@ -160,12 +160,12 @@ The persistence layer is built on **PostgreSQL** with **PostGIS** spatial capabi
 
 ## 6. Machine Learning Pipeline
 
-### Model Architecture
-The failure risk component uses **Logistic Regression** (implemented via `scikit-learn`) to estimate the probability of defect recurrence on a given asset.
+### Hybrid Rule-Based Prioritization with ML Recurrence Risk Adjustment
+The failure risk component uses **Logistic Regression** (implemented via `scikit-learn` and standard scaling) to estimate **ML-Based 90-Day Recurrence Risk Prediction** on a given asset.
 
 ### Train the ML Engine (Optional)
 
-RailVyuha features a legitimate **Machine Learning Pipeline** for predicting asset degradation and failure recurrence risk. The application does *not* use a random number generator for its predictions; instead, it utilizes a Logistic Regression model trained on historical maintenance data.
+RailVyuha features a legitimate **Machine Learning Pipeline** for predicting 90-day future recurrence risk. The application does *not* use a random number generator for its predictions; instead, it utilizes a Logistic Regression model trained on historical maintenance data using strict chronological holdout validation to prevent time-series leakage.
 
 The ML predictor extracts an 8-dimensional canonical feature vector from PostgreSQL `MaintenanceHistory` (strictly checking for observation windows to prevent data leakage) and outputs a probabilistic risk classification.
 

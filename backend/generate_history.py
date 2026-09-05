@@ -6,65 +6,82 @@ import random
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from backend.db.session import SessionLocal
-from backend.db.models import Asset, MaintenanceHistory
+from backend.db.models import Asset, MaintenanceHistory, Section
 
 def generate_synthetic_history():
+    # Set fixed seed for reproducibility
+    random.seed(42)
+
     db = SessionLocal()
-    assets = db.query(Asset).all()
-    
-    if not assets:
+
+    # Clean existing data to prevent accumulation
+    db.query(MaintenanceHistory).delete()
+    db.commit()
+
+    # Join Asset and Section to get corridor_id
+    assets_info = db.query(Asset, Section.corridor_id).join(Section).all()
+
+    if not assets_info:
         print("No assets found.")
         return
-        
+
     records = []
     now = datetime.datetime.now(datetime.timezone.utc)
-    
-    # We want approx 2000 total records. 63 assets * ~32 events = 2016 records.
-    for asset in assets:
+
+    for asset, corridor_id in assets_info:
         age_days = (asset.age_years or 5.0) * 365
         crit = asset.criticality or 3
-        
-        # Determine number of events based on age and criticality
-        num_events = int((age_days / 365) * 4 + crit * 2 + random.randint(-5, 10))
-        num_events = max(10, min(80, num_events)) # Keep bounded
-        
-        # Generate random time offsets for these events (sorted)
-        event_offsets = sorted([random.uniform(10, age_days) for _ in range(num_events)], reverse=True)
-        
+
+        # Corridor multipliers
+        corridor_multiplier = 1.0
+        if corridor_id == "NDLS-CNB":
+            corridor_multiplier = 1.2
+        elif corridor_id == "CSTM-PUNE":
+            corridor_multiplier = 1.1
+
+        current_offset = age_days
         had_failure = False
-        
-        for offset_days in event_offsets:
-            event_start = now - datetime.timedelta(days=offset_days)
+        consecutive_failures = 0
+
+        while current_offset > 5:
+            # Asset degradation: failure hazard generally increases as the asset becomes older
+            age_factor = ((age_days - current_offset) / age_days) * 0.10
+            fail_prob = 0.05 + (crit * 0.02) + age_factor
+            fail_prob *= corridor_multiplier
+
+            if had_failure:
+                fail_prob += 0.15 + (consecutive_failures * 0.05)
+                # Next event happens sooner if there was a failure (clustering)
+                time_step = random.uniform(5, 30)
+            else:
+                # Normal preventive intervals
+                time_step = random.uniform(60, 180)
+
+            current_offset -= time_step
+            if current_offset <= 0:
+                break
+
+            event_start = now - datetime.timedelta(days=current_offset)
             duration = random.choice([60, 90, 120, 180, 240, 360])
             event_end = event_start + datetime.timedelta(minutes=duration)
-            
-            # Determine type
-            if had_failure:
-                # Higher chance of CORRECTIVE if recent failure
-                ev_type = random.choices(["PREVENTIVE", "CORRECTIVE", "EMERGENCY", "INSPECTION"], [20, 40, 10, 30])[0]
-            else:
-                ev_type = random.choices(["PREVENTIVE", "CORRECTIVE", "EMERGENCY", "INSPECTION"], [50, 20, 5, 25])[0]
-            
-            # Calculate failure probability based on age, criticality, and previous failures
-            fail_prob = 0.05 + (crit * 0.02) + (offset_days / (age_days + 1) * 0.05)
-            if had_failure:
-                fail_prob += 0.15
-                
+
             is_failure = random.random() < fail_prob
             is_recurrence = False
-            
+
             if is_failure:
                 if had_failure:
-                    is_recurrence = random.random() < 0.6  # 60% chance to be classified as recurrence if it failed before
+                    # Meaningfully higher recurrence probability if it's a repeated recent failure
+                    is_recurrence = random.random() < min(0.4 + (consecutive_failures * 0.15), 0.9)
+                ev_type = random.choices(["CORRECTIVE", "EMERGENCY"], [70, 30])[0]
                 had_failure = True
+                consecutive_failures += 1
             else:
-                # Slowly decay the failure state
-                if random.random() < 0.3:
+                ev_type = random.choices(["PREVENTIVE", "INSPECTION"], [60, 40])[0]
+                # Slowly decay failure state
+                if random.random() < 0.4:
                     had_failure = False
-                    
-            if ev_type == "EMERGENCY":
-                is_failure = True
-                
+                    consecutive_failures = 0
+
             record = MaintenanceHistory(
                 id=f"SYN-MH-{uuid.uuid4().hex[:8].upper()}",
                 asset_id=asset.id,
@@ -79,11 +96,11 @@ def generate_synthetic_history():
                 recurrence=is_recurrence,
                 team="Maintenance Crew " + str(random.randint(1, 5)),
                 notes="Synthetic historical record for ML calibration.",
-                created_at=event_start,  # Explicitly override the TimestampMixin default
+                created_at=event_start,
                 updated_at=event_end
             )
             records.append(record)
-            
+
     print(f"Generated {len(records)} synthetic historical records.")
     db.add_all(records)
     db.commit()
